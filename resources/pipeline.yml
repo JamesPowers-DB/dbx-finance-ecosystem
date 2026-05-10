@@ -1,0 +1,87 @@
+resources:
+  pipelines:
+    lakehouse:
+      name: finance-demo-lakehouse
+      catalog: ${var.catalog}
+      schema: ${var.schema_silver}
+      serverless: true
+      continuous: false
+      development: false
+      photon: true
+      libraries:
+        # Bronze — one SQL file per source system, each declares its source-shaped
+        # tables reading from /Volumes/${catalog}/${schema_raw}/${raw_volume}/<source>/
+        - file:
+            path: ../pipelines/bronze/sap_ariba.sql
+        - file:
+            path: ../pipelines/bronze/oracle_fusion.sql
+        - file:
+            path: ../pipelines/bronze/inhouse_cms.sql
+
+        # Silver — canonical conformed entities; unions across the three bronze
+        # source-shaped schemas. Each row carries source_system/source_table/
+        # source_primary_key for lineage.
+        - file:
+            path: ../pipelines/silver/supplier.sql
+        - file:
+            path: ../pipelines/silver/customer.sql
+        - file:
+            path: ../pipelines/silver/purchase_order.sql
+        - file:
+            path: ../pipelines/silver/invoice_ap.sql
+        - file:
+            path: ../pipelines/silver/invoice_ar.sql
+        - file:
+            path: ../pipelines/silver/contract_outbound.sql
+        - file:
+            path: ../pipelines/silver/contract_inbound.sql
+        - file:
+            path: ../pipelines/silver/gl_journal.sql
+        - file:
+            path: ../pipelines/silver/coa_account.sql
+        - file:
+            path: ../pipelines/silver/sourcing_event.sql
+
+        # Gold — facts and dims. Reserves Phase 2 hook columns (nullable).
+        - file:
+            path: ../pipelines/gold/dim_supplier.sql
+        - file:
+            path: ../pipelines/gold/dim_customer.sql
+        - file:
+            path: ../pipelines/gold/dim_segment.sql
+        - file:
+            path: ../pipelines/gold/dim_cost_center.sql
+        - file:
+            path: ../pipelines/gold/dim_account.sql
+        - file:
+            path: ../pipelines/gold/dim_date.sql
+        - file:
+            path: ../pipelines/gold/dim_macro_environment.sql
+        - file:
+            path: ../pipelines/gold/fact_spend.sql
+        - file:
+            path: ../pipelines/gold/fact_revenue.sql
+        - file:
+            path: ../pipelines/gold/fact_gl_entries.sql
+        - file:
+            path: ../pipelines/gold/fact_trial_balance.sql
+        - file:
+            path: ../pipelines/gold/fact_fpa_actuals.sql
+        - file:
+            path: ../pipelines/gold/fact_fpa_budgets.sql
+        - file:
+            path: ../pipelines/gold/fact_fpa_forecasts.sql
+        - file:
+            path: ../pipelines/gold/fact_emp_quarterly_cost.sql
+
+      configuration:
+        # Exposed inside SQL files as ${catalog}, ${schema_bronze_ariba}, etc.
+        catalog: ${var.catalog}
+        schema_raw: ${var.schema_raw}
+        schema_bronze_ariba: ${var.schema_bronze_ariba}
+        schema_bronze_fusion: ${var.schema_bronze_fusion}
+        schema_bronze_cms: ${var.schema_bronze_cms}
+        schema_silver: ${var.schema_silver}
+        schema_gold: ${var.schema_gold}
+        schema_meta: ${var.schema_meta}
+        raw_volume: ${var.raw_volume}

@@ -1,0 +1,18 @@
+-- ============================================================================
+-- BRONZE — In-house Contract Management System (commercial / outbound contracts)
+-- ============================================================================
+-- Target schema: ${schema_bronze_cms}
+-- Reads files from: /Volumes/${catalog}/${schema_raw}/${raw_volume}/inhouse_cms/
+-- Naming convention: clean flat snake_case, no exotic prefixes
+-- ============================================================================
+--
+-- Tables to declare in this file:
+--   ${schema_bronze_cms}.contract
+--   ${schema_bronze_cms}.contract_party
+--   ${schema_bronze_cms}.contract_line_item
+--   ${schema_bronze_cms}.contract_amendment
+--   ${schema_bronze_cms}.performance_obligation
+--   ${schema_bronze_cms}.billing_schedule
+--
+-- Pattern: streaming Auto Loader from line-delimited JSON with audit columns.
+-- Implementation deferred to next step (databricks-data-generation skill).

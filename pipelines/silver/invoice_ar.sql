@@ -1,0 +1,12 @@
+-- ============================================================================
+-- SILVER — invoice_ar
+-- ============================================================================
+-- Target schema: ${schema_silver}
+-- Reads from: ${schema_bronze_ariba} / ${schema_bronze_fusion} / ${schema_bronze_cms}
+-- ============================================================================
+--
+-- Canonical conformed entity. Rows carry source_system, source_table,
+-- source_primary_key for lineage. Conforms naming/typing across source-shaped
+-- bronze tables.
+--
+-- Implementation deferred to next step.

@@ -1,0 +1,55 @@
+bundle:
+  name: dbx-finance-ecosystem
+
+include:
+  - resources/*.yml
+  - jobs/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog name for this project
+    default: finance_demo
+
+  schema_raw:
+    description: Raw landing zone — managed volume holds files from all source systems
+    default: raw_data
+  schema_bronze_ariba:
+    description: Bronze tables shaped like SAP Ariba native exports
+    default: bronze_ariba
+  schema_bronze_fusion:
+    description: Bronze tables shaped like Oracle Fusion Cloud native exports
+    default: bronze_fusion
+  schema_bronze_cms:
+    description: Bronze tables shaped like the in-house contract management system
+    default: bronze_cms
+  schema_silver:
+    description: Cleaned, deduplicated, conformed entities across all three sources
+    default: silver
+  schema_gold:
+    description: Denormalized facts and dims for business consumption
+    default: gold
+  schema_meta:
+    description: Anchor tables and governance — dim_period_anchors and draft
+    default: _meta
+  schema_ml:
+    description: ML feature tables and registered models (Phase 2)
+    default: ml
+
+  raw_volume:
+    description: Managed volume name under the raw_data schema
+    default: files
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      profile: aws-e2-demo-field-eng
+
+  prod:
+    mode: production
+    workspace:
+      host: https://e2-demo-west.cloud.databricks.com
+      root_path: /Workspace/Users/james.powers@databricks.com/.bundle/${bundle.name}/${bundle.target}
+    run_as:
+      user_name: james.powers@databricks.com

@@ -1,0 +1,27 @@
+-- ============================================================================
+-- BRONZE — Oracle Fusion Cloud (accounting)
+-- ============================================================================
+-- Target schema: ${schema_bronze_fusion}
+-- Reads files from: /Volumes/${catalog}/${schema_raw}/${raw_volume}/oracle_fusion/
+-- Naming convention: snake_case with prefixes (gl_*, ap_*, ar_*, xla_*)
+-- ============================================================================
+--
+-- Tables to declare in this file:
+--   ${schema_bronze_fusion}.gl_je_headers
+--   ${schema_bronze_fusion}.gl_je_lines
+--   ${schema_bronze_fusion}.gl_code_combinations   (7-segment COA)
+--   ${schema_bronze_fusion}.gl_periods
+--   ${schema_bronze_fusion}.gl_balances
+--   ${schema_bronze_fusion}.gl_trial_balance
+--   ${schema_bronze_fusion}.xla_ae_headers
+--   ${schema_bronze_fusion}.xla_ae_lines
+--   ${schema_bronze_fusion}.ap_invoices_all
+--   ${schema_bronze_fusion}.ap_invoice_distributions_all
+--   ${schema_bronze_fusion}.ap_payment_schedules_all
+--   ${schema_bronze_fusion}.ap_supplier_sites_all
+--   ${schema_bronze_fusion}.ar_invoices_all
+--   ${schema_bronze_fusion}.ar_receipt_schedules
+--   ${schema_bronze_fusion}.ar_customer_sites_all
+--
+-- Pattern: streaming Auto Loader from CSV + Parquet with audit columns.
+-- Implementation deferred to next step (databricks-data-generation skill).

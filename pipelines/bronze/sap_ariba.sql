@@ -1,0 +1,19 @@
+-- ============================================================================
+-- BRONZE — SAP Ariba (procurement)
+-- ============================================================================
+-- Target schema: ${schema_bronze_ariba}
+-- Reads files from: /Volumes/${catalog}/${schema_raw}/${raw_volume}/sap_ariba/
+-- Naming convention: ALL_CAPS with German codes (LIFNR, EBELN, EKKO, EKPO, RBKP)
+-- ============================================================================
+--
+-- Tables to declare in this file:
+--   ${schema_bronze_ariba}.LFA1_SUPPLIER_MASTER
+--   ${schema_bronze_ariba}.EKKO_PO_HEADER
+--   ${schema_bronze_ariba}.EKPO_PO_LINE
+--   ${schema_bronze_ariba}.RBKP_INVOICE_HEADER
+--   ${schema_bronze_ariba}.ARIBA_SOURCING_EVENT
+--   ${schema_bronze_ariba}.ARIBA_CONTRACT_WORKSPACE
+--   ${schema_bronze_ariba}.ARIBA_SUPPLIER_PERFORMANCE
+--
+-- Pattern: streaming Auto Loader from CSV with _ingested_at audit column.
+-- Implementation deferred to next step (databricks-data-generation skill).

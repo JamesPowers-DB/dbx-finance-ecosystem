@@ -1,0 +1,68 @@
+resources:
+  jobs:
+    ingest_10q:
+      name: finance-demo-ingest-10q
+      description: >
+        Process a new Honeywell 10-Q HTML filing.
+
+        Flow: user drops HTML into /Volumes/${var.catalog}/raw_data/files/filings/raw/.
+        extract_10q runs ai_extract/AI_QUERY (Claude) over the filing and
+        writes a draft row per segment + CONSOL to _meta.dim_period_anchors_draft.
+        review_anchor_draft is an interactive notebook — user inspects the
+        diff vs. prior quarter, applies the 1/10 scaling + Helios renaming if
+        not already, stamps human_reviewed_by, and merges into
+        _meta.dim_period_anchors. regenerate_quarter then re-runs the
+        per-source generators for the affected fiscal quarter and triggers
+        the lakehouse pipeline for a partial refresh.
+
+        Run modes: kick off after dropping a new filing. Tasks beyond extract
+        are intentionally manual gates — do not auto-merge AI output.
+      max_concurrent_runs: 1
+      email_notifications: {}
+      parameters:
+        - name: filing_path
+          default: /Volumes/finance_demo/raw_data/files/filings/raw/10q_latest.html
+        - name: fiscal_year
+          default: "2026"
+        - name: fiscal_quarter
+          default: "1"
+      tasks:
+        - task_key: extract_10q
+          notebook_task:
+            notebook_path: ../ml/notebooks/01_extract_10q.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_meta: ${var.schema_meta}
+              filing_path: "{{job.parameters.filing_path}}"
+              fiscal_year: "{{job.parameters.fiscal_year}}"
+              fiscal_quarter: "{{job.parameters.fiscal_quarter}}"
+
+        - task_key: review_anchor_draft
+          depends_on:
+            - task_key: extract_10q
+          notebook_task:
+            notebook_path: ../ml/notebooks/02_review_anchor_draft.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_meta: ${var.schema_meta}
+              fiscal_year: "{{job.parameters.fiscal_year}}"
+              fiscal_quarter: "{{job.parameters.fiscal_quarter}}"
+
+        - task_key: regenerate_quarter
+          depends_on:
+            - task_key: review_anchor_draft
+          notebook_task:
+            notebook_path: ../ml/notebooks/03_regenerate_quarter.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_raw: ${var.schema_raw}
+              schema_meta: ${var.schema_meta}
+              raw_volume: ${var.raw_volume}
+              fiscal_year: "{{job.parameters.fiscal_year}}"
+              fiscal_quarter: "{{job.parameters.fiscal_quarter}}"
+
+      queue:
+        enabled: true

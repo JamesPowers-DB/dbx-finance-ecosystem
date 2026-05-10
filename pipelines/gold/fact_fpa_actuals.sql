@@ -1,0 +1,14 @@
+-- ============================================================================
+-- GOLD — fact_fpa_actuals
+-- ============================================================================
+-- Target schema: ${schema_gold}
+-- Reads from: ${schema_silver}
+-- ============================================================================
+--
+-- Business-facing fact/dim. Reserves Phase 2 hook columns (nullable):
+--   fact_spend     → managed_spend_flag, unspsc_segment_code, unspsc_family_code,
+--                    supplier_canonical_id, classification_confidence
+--   dim_supplier   → canonical_supplier_id, entity_resolution_cluster_id
+--   fact_revenue   → contract_leakage_flag, savings_realized_usd
+--
+-- Implementation deferred to next step.

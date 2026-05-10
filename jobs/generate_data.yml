@@ -1,0 +1,86 @@
+resources:
+  jobs:
+    generate_data:
+      name: finance-demo-generate-data
+      description: >
+        Synthesize source-shaped raw files into /Volumes/${var.catalog}/raw_data/files/.
+
+        Order: macro factors → seed anchor table from Honeywell 10-K/10-Q
+        (anonymized + 1/10 scaled) → per-source file generators (Ariba CSVs,
+        Fusion CSV/Parquet, CMS JSON) → reconciliation gate. Reconciliation
+        fails the job if quarterly aggregates drift more than ±2% from
+        _meta.dim_period_anchors.
+      max_concurrent_runs: 1
+      email_notifications: {}
+      tasks:
+        - task_key: generate_macro_environment
+          notebook_task:
+            notebook_path: ../data/generators/00_macro_environment.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_gold: ${var.schema_gold}
+
+        - task_key: seed_period_anchors
+          depends_on:
+            - task_key: generate_macro_environment
+          notebook_task:
+            notebook_path: ../data/generators/01_period_anchors_seed.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_meta: ${var.schema_meta}
+
+        - task_key: generate_ariba_files
+          depends_on:
+            - task_key: seed_period_anchors
+          notebook_task:
+            notebook_path: ../data/generators/02_ariba_files.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_raw: ${var.schema_raw}
+              schema_meta: ${var.schema_meta}
+              raw_volume: ${var.raw_volume}
+
+        - task_key: generate_fusion_files
+          depends_on:
+            - task_key: seed_period_anchors
+          notebook_task:
+            notebook_path: ../data/generators/03_fusion_files.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_raw: ${var.schema_raw}
+              schema_meta: ${var.schema_meta}
+              raw_volume: ${var.raw_volume}
+
+        - task_key: generate_cms_files
+          depends_on:
+            - task_key: seed_period_anchors
+          notebook_task:
+            notebook_path: ../data/generators/04_cms_files.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_raw: ${var.schema_raw}
+              schema_meta: ${var.schema_meta}
+              raw_volume: ${var.raw_volume}
+
+        - task_key: reconcile_tie_out
+          depends_on:
+            - task_key: generate_ariba_files
+            - task_key: generate_fusion_files
+            - task_key: generate_cms_files
+          notebook_task:
+            notebook_path: ../data/generators/99_reconcile.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_raw: ${var.schema_raw}
+              schema_meta: ${var.schema_meta}
+              raw_volume: ${var.raw_volume}
+              tolerance_pct: "2.0"
+
+      queue:
+        enabled: true

@@ -1,0 +1,31 @@
+resources:
+  jobs:
+    build_lakehouse:
+      name: finance-demo-build-lakehouse
+      description: >
+        Run the Lakeflow pipeline that materializes bronze → silver → gold
+        from files in /Volumes/${var.catalog}/raw_data/files/. Run this after
+        finance-demo-generate-data has produced fresh source files (or after
+        finance-demo-ingest-10q has regenerated a specific quarter).
+      max_concurrent_runs: 1
+      email_notifications: {}
+      tasks:
+        - task_key: run_lakehouse_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.lakehouse.id}
+            full_refresh: false
+
+        - task_key: validate_gold_vs_anchors
+          depends_on:
+            - task_key: run_lakehouse_pipeline
+          notebook_task:
+            notebook_path: ../ml/notebooks/99_validate_gold_vs_anchors.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_gold: ${var.schema_gold}
+              schema_meta: ${var.schema_meta}
+              tolerance_pct: "2.0"
+
+      queue:
+        enabled: true
