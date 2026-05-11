@@ -7,7 +7,7 @@
 # MAGIC and writes a draft row per segment + CONSOL to
 # MAGIC `${catalog}.${schema_meta}.dim_period_anchors_draft` with a confidence_score.
 # MAGIC
-# MAGIC Numbers are extracted at Honeywell scale; the Helios renaming + 1/10
+# MAGIC Numbers are extracted at the source-filing scale; the Helios renaming + 1/10
 # MAGIC scaling are applied in the review step (02), not here. This keeps the
 # MAGIC AI-extracted draft faithful to the source filing for easier diffing.
 # MAGIC

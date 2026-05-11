@@ -3,7 +3,7 @@ resources:
     finance_demo:
       name: ${var.catalog}
       comment: >
-        Helios Industrial Group demo — Honeywell-anchored, fully anonymized
+        Helios Industrial Group demo — filing-anchored, fully anonymized
         finance data ecosystem. Wave 1 horizontal GTM (F-1 Spend Visibility).
 
   schemas:

@@ -3,7 +3,7 @@ resources:
     ingest_10q:
       name: finance-demo-ingest-10q
       description: >
-        Process a new Honeywell 10-Q HTML filing.
+        Process a new reference 10-Q HTML filing.
 
         Flow: user drops HTML into /Volumes/${var.catalog}/raw_data/files/filings/raw/.
         extract_10q runs ai_extract/AI_QUERY (Claude) over the filing and

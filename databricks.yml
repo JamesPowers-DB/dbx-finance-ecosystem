@@ -44,12 +44,13 @@ targets:
     mode: development
     default: true
     workspace:
-      profile: aws-e2-demo-field-eng
+      profile: DEFAULT
 
   prod:
     mode: production
     workspace:
-      host: https://e2-demo-west.cloud.databricks.com
-      root_path: /Workspace/Users/james.powers@databricks.com/.bundle/${bundle.name}/${bundle.target}
+      host: https://e2-demo-field-eng.cloud.databricks.com
+      profile: DEFAULT
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
     run_as:
       user_name: james.powers@databricks.com

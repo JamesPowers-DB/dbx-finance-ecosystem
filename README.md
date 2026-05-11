@@ -1,6 +1,6 @@
 # dbx-finance-ecosystem
 
-Helios Industrial Group — a Honeywell-anchored, fully anonymized finance data ecosystem demo. Wave 1 horizontal GTM (F-1 Spend Visibility & Strategic Sourcing Intelligence). Target: dbdemos Gold-tier.
+Helios Industrial Group — a filing-anchored, fully anonymized finance data ecosystem demo. Wave 1 horizontal GTM (F-1 Spend Visibility & Strategic Sourcing Intelligence). Target: dbdemos Gold-tier.
 
 The authoritative design lives in `_demo/00_design_context.md`. Read that first.
 
@@ -50,22 +50,39 @@ dbx-finance-ecosystem/
 databricks bundle validate -t dev
 databricks bundle deploy -t dev
 
-# First-time setup
+# First-time setup: synthesize raw files + build the lakehouse
 databricks bundle run generate_data -t dev
 databricks bundle run build_lakehouse -t dev
+```
 
-# When a new 10-Q drops
-# 1) Upload HTML to /Volumes/finance_demo/raw_data/files/filings/raw/10q_<period>.html
-# 2) Then:
+### When a new reference 10-Q drops
+
+The demo is designed to absorb new quarters automatically. Full workflow is documented in [`data/generators/README.md`](data/generators/README.md#future-10-q-ingestion-workflow). Short version:
+
+```bash
+# 1) Drop the 10-Q HTML
+#    cp ~/Downloads/reference-10q-2026q1.html  \
+#       /Volumes/finance_demo/raw_data/files/filings/raw/10q_2026q1.html
+
+# 2) Extract → human-review → regenerate that quarter's source files
 databricks bundle run ingest_10q -t dev \
   --params filing_path=/Volumes/finance_demo/raw_data/files/filings/raw/10q_2026q1.html,fiscal_year=2026,fiscal_quarter=1
+
+# 3) Propagate through bronze → silver → gold
 databricks bundle run build_lakehouse -t dev
 ```
+
+The extract step uses Claude via `ai_extract` to produce a draft anchor row; the review step is a human-in-the-loop notebook that diffs the draft against prior quarters before merging into `_meta.dim_period_anchors`; the regen step re-runs the per-quarter slice of the source-file generators. Supplier master, contracts, and COA are not touched.
 
 Targets: `dev` (profile `aws-e2-demo-field-eng`, mode development, default) and `prod` (host `e2-demo-west`, mode production).
 
 ## Status
 
-Foundation scaffold only. All bronze/silver/gold SQL and generator/ml notebooks are stubs with TODO comments. Implementation of generator logic + transformation SQL is the next step (apply `fe-databricks-tools:databricks-data-generation` and `fe-databricks-tools:databricks-resource-deployment` skills against this scaffold).
+- ✅ DAB scaffold (`databricks.yml`, `resources/`, `jobs/`, `pipelines/` stubs)
+- ✅ Data generators — anchor-driven Polars + NumPy + Mimesis; see [`data/generators/README.md`](data/generators/README.md)
+- ⏳ Bronze / silver / gold SQL — pipeline files are stubs with TODO headers; next step (`fe-databricks-tools:databricks-resource-deployment`)
+- ⏳ 10-Q AI extraction notebooks (`ml/notebooks/01_extract_10q.py`, `02_review_anchor_draft.py`, `03_regenerate_quarter.py`) — stubs; next step
+
+The generators embed ML-friendly signals (30 spend categories, supplier→category mappings, noisy MATGROUP labels, maverick spend, rich descriptions, ground-truth label) so Phase 2 spend classification has training data ready out of the box. See [`data/generators/README.md`](data/generators/README.md#spend-classification--whats-in-the-data-for-ml) for the full ML-data design.
 
 Phase 2 work (UNSPSC taxonomy, spend classification ML, supplier entity resolution, contract leakage detection, savings tracking, maverick spend detection, Lakebase supplier master app, Genie spaces, agents, dashboards) is deferred — gold schema reserves column hooks so Phase 2 is additive.

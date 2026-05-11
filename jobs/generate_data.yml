@@ -5,7 +5,7 @@ resources:
       description: >
         Synthesize source-shaped raw files into /Volumes/${var.catalog}/raw_data/files/.
 
-        Order: macro factors → seed anchor table from Honeywell 10-K/10-Q
+        Order: macro factors → seed anchor table from reference 10-K/10-Q
         (anonymized + 1/10 scaled) → per-source file generators (Ariba CSVs,
         Fusion CSV/Parquet, CMS JSON) → reconciliation gate. Reconciliation
         fails the job if quarterly aggregates drift more than ±2% from
