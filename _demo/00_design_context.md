@@ -17,13 +17,11 @@
 
 ## Three explicit user requirements
 
-1. **Data realism via Honeywell anchoring.** Use Honeywell's 10-K + 10-Q as a numerical anchor; **fully anonymize** company name/segments/geographies; scale numbers ~1/10 so the demo company reads as a mid-cap industrial conglomerate.
+1. **Data realism via reference-filing anchoring.** Use a public industrial conglomerate's 10-K + 10-Q as a numerical anchor; **fully anonymize** company name/segments/geographies; scale numbers ~1/10 so the demo company reads as a mid-cap industrial conglomerate.
 2. **Future 10-Q ingestion.** When a new 10-Q drops, the user should be able to upload the HTML and have new quarter records generated that reconcile to the filing.
 3. **Three source-system shapes.** Raw bronze data must look like it came from SAP Ariba (procurement), Oracle Fusion Cloud (accounting), and a custom in-house contract management system (CMS).
 
-**Honeywell source filings:**
-- 10-K: <https://investor.honeywell.com/node/50761/html>
-- Latest 10-Q: <https://investor.honeywell.com/node/51331/html>
+**Source filings:** kept out of version control. Store the URLs / saved HTML out-of-tree (e.g., a private notes doc) to avoid pinning the demo to a specific named issuer.
 
 ---
 
@@ -41,8 +39,8 @@
 ## 1. Anonymized company framing
 
 **Company:** Helios Industrial Group, Inc. (HIG)
-**Fiscal year:** calendar-year (Dec 31 close), preserving Honeywell's cadence
-**Scale:** 1/10 of Honeywell — ~$3.85B FY revenue, ~$570M net income, ~10K employees
+**Fiscal year:** calendar-year (Dec 31 close), matching the reference filings' cadence
+**Scale:** 1/10 of the reference filings — ~$3.85B FY revenue, ~$570M net income, ~10K employees
 
 | Helios segment                            | Code | HON segment origin                | Mix |
 |-------------------------------------------|------|-----------------------------------|-----|
@@ -225,7 +223,7 @@ End-to-end smoke test:
 3. **Volume layout:** `/Volumes/finance_demo/raw_data/files/sap_ariba/EKKO_PO_HEADER/<load_date>/` exists with CSVs; analogous `/oracle_fusion/` (Parquet/CSV), `/inhouse_cms/` (JSON), and `/filings/raw/` for 10-Q HTML.
 4. **Reconciliation gate:** build job runs; tie-out notebook passes — for each (FY, Q, segment) with an anchor row, gold facts land within ±2%.
 5. **10-Q replay:** drop a "next quarter" HTML, run extractor → review → regenerate; gold facts grow by exactly one quarter and tie out.
-6. **Anonymization check:** grep all generated content — no occurrences of `Honeywell`, `HON`, `Aerospace Technologies`, `Industrial Automation`, `Building Automation`, `Energy and Sustainability`. Honeywell's literal `US / Europe / Other International` geographic phrasing also banned (country fields in supplier addresses can stay realistic).
+6. **Anonymization check:** grep all generated content and committed artifacts for the source filer's name or original segment names (kept out of version control intentionally). The reference filings' literal `US / Europe / Other International` geographic phrasing is also banned in generated content; country fields in supplier addresses can stay realistic.
 
 ---
 
@@ -235,8 +233,7 @@ End-to-end smoke test:
 - `~/Dev/fin_demo/databricks.yml` — reference bundle structure (evolve from)
 - `~/Dev/fin_demo/TASKS.md` — reference for macro-environment AR(1) pattern & deterministic seeds
 - `~/Dev/fin_demo/00.Data Generation/00a_generate_macro_environment.ipynb` — reference macro factor generation
-- Honeywell 10-K: <https://investor.honeywell.com/node/50761/html>
-- Honeywell 10-Q: <https://investor.honeywell.com/node/51331/html>
+- Source filings (10-K + 10-Q): kept out of tree — store URLs/HTML in a private notes doc
 - Design doc: <https://docs.google.com/document/d/1NbkfiV-4dVe4xOr0uiBCGJ5NvYKtxS5xTEBwtuXR5ug/edit>
 - Approved plan: `~/.claude/plans/check-out-this-design-compiled-pond.md`
 
@@ -248,7 +245,7 @@ The DAB scaffold is now in place (see `databricks.yml`, `resources/`, `jobs/`, `
 
 Next step applies these skills against the scaffold:
 
-- `fe-databricks-tools:databricks-data-generation` — populate `data/generators/02_ariba_files.py`, `03_fusion_files.py`, `04_cms_files.py` with anchor-driven Polars/Mimesis synthesis. Also populate `01_period_anchors_seed.py` with Honeywell baseline values.
+- `fe-databricks-tools:databricks-data-generation` — populate `data/generators/02_ariba_files.py`, `03_fusion_files.py`, `04_cms_files.py` with anchor-driven Polars/Mimesis synthesis. Also populate `01_period_anchors_seed.py` with reference-filing baseline values.
 - `fe-databricks-tools:databricks-resource-deployment` — populate bronze/silver/gold pipeline SQL files; deploy the bundle.
 
 Implementation order:
