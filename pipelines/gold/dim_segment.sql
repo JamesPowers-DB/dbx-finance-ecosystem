@@ -1,14 +1,15 @@
 -- ============================================================================
 -- GOLD — dim_segment
 -- ============================================================================
--- Target schema: ${schema_gold}
--- Reads from: ${schema_silver}
--- ============================================================================
---
--- Business-facing fact/dim. Reserves Phase 2 hook columns (nullable):
---   fact_spend     → managed_spend_flag, unspsc_segment_code, unspsc_family_code,
---                    supplier_canonical_id, classification_confidence
---   dim_supplier   → canonical_supplier_id, entity_resolution_cluster_id
---   fact_revenue   → contract_leakage_flag, savings_realized_usd
---
--- Implementation deferred to next step.
+
+CREATE OR REFRESH MATERIALIZED VIEW ${schema_gold}.dim_segment
+COMMENT "Helios reporting segments + corporate. Static."
+AS
+SELECT segment_code, segment_name, company_code, sort_order FROM VALUES
+  ('HAD',  'Helios Aerospace & Defense',  '1100', 1),
+  ('HPA',  'Helios Process Automation',   '1200', 2),
+  ('HSB',  'Helios Smart Buildings',      '1300', 3),
+  ('HET',  'Helios Energy Transition',    '1400', 4),
+  ('CORP', 'Helios Corporate',            '1900', 5),
+  ('CONSOL','Helios Industrial Group (Consolidated)', NULL, 0)
+  AS t(segment_code, segment_name, company_code, sort_order);

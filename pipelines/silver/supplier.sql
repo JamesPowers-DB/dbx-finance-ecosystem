@@ -1,12 +1,67 @@
 -- ============================================================================
--- SILVER — supplier
+-- SILVER — supplier (canonical, source-tagged)
 -- ============================================================================
--- Target schema: ${schema_silver}
--- Reads from: ${schema_bronze_ariba} / ${schema_bronze_fusion} / ${schema_bronze_cms}
+-- Unions Ariba LFA1 + Fusion ap_supplier_sites_all. Pre-Phase 2,
+-- supplier_canonical_id == supplier_id; entity-resolution will populate it.
 -- ============================================================================
---
--- Canonical conformed entity. Rows carry source_system, source_table,
--- source_primary_key for lineage. Conforms naming/typing across source-shaped
--- bronze tables.
---
--- Implementation deferred to next step.
+
+CREATE OR REFRESH MATERIALIZED VIEW ${schema_silver}.supplier
+COMMENT "Conformed supplier master. Reserves supplier_canonical_id for the Phase 2 entity-resolution model."
+AS
+WITH ariba_suppliers AS (
+  SELECT
+    'sap_ariba'                            AS source_system,
+    'LFA1_SUPPLIER_MASTER'                 AS source_table,
+    LIFNR                                  AS source_primary_key,
+    LIFNR                                  AS supplier_id,
+    NAME1                                  AS supplier_name,
+    LAND1                                  AS country_code,
+    CASE
+      WHEN LAND1 IN ('US','CA','MX')                                  THEN 'NA'
+      WHEN LAND1 IN ('DE','FR','GB','IT','ES','NL','BE','PL','CZ')    THEN 'EMEA'
+      WHEN LAND1 IN ('CN','JP','IN','KR','AU','SG','TH')              THEN 'APAC'
+      WHEN LAND1 IN ('BR','AR','CL','CO')                             THEN 'LATAM'
+      ELSE 'OTHER'
+    END                                    AS region,
+    SPRAS                                  AS language_code,
+    ERSDA                                  AS created_date,
+    _supplier_category_primary             AS category_primary,
+    _supplier_category_secondary_json      AS category_secondary_json,
+    _maverick_propensity                   AS maverick_propensity,
+    _industry_segment_affinity             AS segment_affinity
+  FROM ${schema_bronze_ariba}.LFA1_SUPPLIER_MASTER
+),
+fusion_sites AS (
+  SELECT
+    'oracle_fusion'                                                   AS source_system,
+    'ap_supplier_sites_all'                                           AS source_table,
+    CAST(vendor_site_id AS STRING)                                    AS source_primary_key,
+    vendor_id_ext                                                     AS supplier_id,
+    NULL                                                              AS supplier_name,
+    country                                                           AS country_code,
+    CASE
+      WHEN country IN ('US','CA','MX')                                THEN 'NA'
+      WHEN country IN ('DE','FR','GB','IT','ES','NL','BE','PL','CZ')  THEN 'EMEA'
+      WHEN country IN ('CN','JP','IN','KR','AU','SG','TH')            THEN 'APAC'
+      WHEN country IN ('BR','AR','CL','CO')                           THEN 'LATAM'
+      ELSE 'OTHER'
+    END                                                               AS region,
+    NULL                                                              AS language_code,
+    NULL                                                              AS created_date,
+    NULL                                                              AS category_primary,
+    NULL                                                              AS category_secondary_json,
+    NULL                                                              AS maverick_propensity,
+    NULL                                                              AS segment_affinity
+  FROM ${schema_bronze_fusion}.ap_supplier_sites_all
+  WHERE purchasing_site_flag = 'Y'
+)
+SELECT
+  a.*,
+  -- Phase 2 hooks (populated by supplier entity resolution model)
+  CAST(NULL AS STRING) AS supplier_canonical_id,
+  CAST(NULL AS STRING) AS entity_resolution_cluster_id
+FROM (
+  SELECT * FROM ariba_suppliers
+  UNION ALL
+  SELECT * FROM fusion_sites
+) a;

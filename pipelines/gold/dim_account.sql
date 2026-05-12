@@ -1,14 +1,12 @@
 -- ============================================================================
--- GOLD — dim_account
+-- GOLD — dim_account (natural account)
 -- ============================================================================
--- Target schema: ${schema_gold}
--- Reads from: ${schema_silver}
--- ============================================================================
---
--- Business-facing fact/dim. Reserves Phase 2 hook columns (nullable):
---   fact_spend     → managed_spend_flag, unspsc_segment_code, unspsc_family_code,
---                    supplier_canonical_id, classification_confidence
---   dim_supplier   → canonical_supplier_id, entity_resolution_cluster_id
---   fact_revenue   → contract_leakage_flag, savings_realized_usd
---
--- Implementation deferred to next step.
+
+CREATE OR REFRESH MATERIALIZED VIEW ${schema_gold}.dim_account
+COMMENT "Natural account dim. account_type maps COGS / SGA / RD / REVENUE / INTEREST / TAX / BS for FP&A roll-ups."
+AS
+SELECT DISTINCT
+  natural_account_code                    AS account_code,
+  natural_account_description             AS account_description,
+  natural_account_type                    AS account_type
+FROM ${schema_silver}.coa_account;

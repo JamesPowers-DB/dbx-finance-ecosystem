@@ -1,14 +1,27 @@
 -- ============================================================================
--- GOLD — fact_fpa_actuals
+-- GOLD — fact_fpa_actuals (per-period × segment × account-type roll-up)
 -- ============================================================================
--- Target schema: ${schema_gold}
--- Reads from: ${schema_silver}
+-- Aggregates fact_gl_entries to the FP&A grain: one row per
+-- (fiscal_year, fiscal_quarter, segment, account_type). Revenue is reported
+-- positive; expense types (COGS / SGA / RD / INTEREST / TAX) are reported
+-- positive (debit-natural).
 -- ============================================================================
---
--- Business-facing fact/dim. Reserves Phase 2 hook columns (nullable):
---   fact_spend     → managed_spend_flag, unspsc_segment_code, unspsc_family_code,
---                    supplier_canonical_id, classification_confidence
---   dim_supplier   → canonical_supplier_id, entity_resolution_cluster_id
---   fact_revenue   → contract_leakage_flag, savings_realized_usd
---
--- Implementation deferred to next step.
+
+CREATE OR REFRESH MATERIALIZED VIEW ${schema_gold}.fact_fpa_actuals
+COMMENT "FP&A actuals from GL. Should reconcile to _meta.dim_period_anchors per (fiscal_year × fiscal_quarter × segment_code × account_type) ±2%."
+AS
+SELECT
+  fiscal_year,
+  fiscal_quarter,
+  segment_code,
+  account_type,
+  -- Revenue accounts are credit-natural; reverse sign so they display positive
+  CASE
+    WHEN account_type = 'REVENUE' THEN SUM(accounted_cr - accounted_dr)
+    ELSE                                SUM(accounted_dr - accounted_cr)
+  END                                              AS amount_usd,
+  COUNT(*)                                         AS entry_count
+FROM ${schema_gold}.fact_gl_entries
+WHERE segment_code IS NOT NULL
+  AND account_type IN ('REVENUE', 'COGS', 'SGA', 'RD', 'INTEREST', 'TAX')
+GROUP BY ALL;

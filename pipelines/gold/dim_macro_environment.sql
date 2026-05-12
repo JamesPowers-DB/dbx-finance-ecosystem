@@ -1,14 +1,10 @@
 -- ============================================================================
--- GOLD — dim_macro_environment
+-- GOLD — dim_macro_environment (managed externally)
 -- ============================================================================
--- Target schema: ${schema_gold}
--- Reads from: ${schema_silver}
+-- This Delta table is written directly by `data/generators/00_macro_environment.py`
+-- and is NOT (re)declared by the Lakeflow pipeline. The empty body is intentional —
+-- it leaves the table untouched by pipeline refreshes so the AR(1) noise sequence
+-- stays deterministic across pipeline runs.
+--
+-- Querying: SELECT * FROM ${catalog}.${schema_gold}.dim_macro_environment;
 -- ============================================================================
---
--- Business-facing fact/dim. Reserves Phase 2 hook columns (nullable):
---   fact_spend     → managed_spend_flag, unspsc_segment_code, unspsc_family_code,
---                    supplier_canonical_id, classification_confidence
---   dim_supplier   → canonical_supplier_id, entity_resolution_cluster_id
---   fact_revenue   → contract_leakage_flag, savings_realized_usd
---
--- Implementation deferred to next step.

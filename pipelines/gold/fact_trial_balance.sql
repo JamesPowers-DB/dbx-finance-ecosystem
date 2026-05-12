@@ -1,14 +1,26 @@
 -- ============================================================================
--- GOLD — fact_trial_balance
+-- GOLD — fact_trial_balance (period-end totals by COA combination)
 -- ============================================================================
--- Target schema: ${schema_gold}
--- Reads from: ${schema_silver}
+-- Derived from fact_gl_entries (preferred — single source of truth) rather
+-- than the bronze gl_trial_balance file. Aggregation is one row per
+-- (code_combination_id × fiscal_year × fiscal_quarter).
 -- ============================================================================
---
--- Business-facing fact/dim. Reserves Phase 2 hook columns (nullable):
---   fact_spend     → managed_spend_flag, unspsc_segment_code, unspsc_family_code,
---                    supplier_canonical_id, classification_confidence
---   dim_supplier   → canonical_supplier_id, entity_resolution_cluster_id
---   fact_revenue   → contract_leakage_flag, savings_realized_usd
---
--- Implementation deferred to next step.
+
+CREATE OR REFRESH MATERIALIZED VIEW ${schema_gold}.fact_trial_balance
+COMMENT "Period-end trial balance roll-up by code_combination_id."
+AS
+SELECT
+  code_combination_id,
+  fiscal_year,
+  fiscal_quarter,
+  period_name,
+  segment_code,
+  account_type,
+  natural_account_code,
+  cost_center_code,
+  SUM(accounted_dr)                AS period_dr,
+  SUM(accounted_cr)                AS period_cr,
+  SUM(net_amount)                  AS period_net
+FROM ${schema_gold}.fact_gl_entries
+WHERE code_combination_id IS NOT NULL
+GROUP BY ALL;
