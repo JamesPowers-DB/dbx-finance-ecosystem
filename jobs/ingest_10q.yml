@@ -1,7 +1,7 @@
 resources:
   jobs:
     ingest_10q:
-      name: finance-demo-ingest-10q
+      name: finance-demo-ingest-10q-${bundle.target}
       description: >
         Process a new reference 10-Q HTML filing.
 
@@ -19,15 +19,23 @@ resources:
         are intentionally manual gates — do not auto-merge AI output.
       max_concurrent_runs: 1
       email_notifications: {}
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - polars==1.30.0
+              - mimesis==18.0.0
       parameters:
         - name: filing_path
-          default: /Volumes/finance_demo/raw_data/files/filings/raw/10q_latest.html
+          default: /Volumes/${var.catalog}/${var.schema_raw}/${var.raw_volume}/filings/raw/10q_latest.html
         - name: fiscal_year
           default: "2026"
         - name: fiscal_quarter
           default: "1"
       tasks:
         - task_key: extract_10q
+          environment_key: default
           notebook_task:
             notebook_path: ../ml/notebooks/01_extract_10q.py
             source: WORKSPACE
@@ -39,6 +47,7 @@ resources:
               fiscal_quarter: "{{job.parameters.fiscal_quarter}}"
 
         - task_key: review_anchor_draft
+          environment_key: default
           depends_on:
             - task_key: extract_10q
           notebook_task:
@@ -51,6 +60,7 @@ resources:
               fiscal_quarter: "{{job.parameters.fiscal_quarter}}"
 
         - task_key: regenerate_quarter
+          environment_key: default
           depends_on:
             - task_key: review_anchor_draft
           notebook_task:

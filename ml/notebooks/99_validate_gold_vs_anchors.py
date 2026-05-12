@@ -10,9 +10,9 @@
 # MAGIC Implementation deferred to next step.
 
 # COMMAND ----------
-dbutils.widgets.text("catalog", "finance_demo")
-dbutils.widgets.text("schema_gold", "gold")
-dbutils.widgets.text("schema_meta", "_meta")
+dbutils.widgets.text("catalog", "")
+dbutils.widgets.text("schema_gold", "")
+dbutils.widgets.text("schema_meta", "")
 dbutils.widgets.text("tolerance_pct", "2.0")
 
 print("TODO: assert gold tables tie to anchors")

@@ -21,27 +21,30 @@
 # MAGIC %run ./_lib
 
 # COMMAND ----------
-dbutils.widgets.text("catalog", "finance_demo")
-dbutils.widgets.text("schema_raw", "raw_data")
-dbutils.widgets.text("schema_meta", "_meta")
-dbutils.widgets.text("schema_gold", "gold")
-dbutils.widgets.text("raw_volume", "files")
+dbutils.widgets.text("catalog", "")
+dbutils.widgets.text("schema_raw", "")
+dbutils.widgets.text("schema_meta", "")
+dbutils.widgets.text("schema_gold", "")
+dbutils.widgets.text("raw_volume", "")
 dbutils.widgets.text("target_fiscal_year", "")
 dbutils.widgets.text("target_fiscal_quarter", "")
 
-catalog = get_widget("catalog", "finance_demo")
-schema_raw = get_widget("schema_raw", "raw_data")
-schema_meta = get_widget("schema_meta", "_meta")
-schema_gold = get_widget("schema_gold", "gold")
-raw_volume = get_widget("raw_volume", "files")
+catalog = get_widget("catalog", "")
+schema_raw = get_widget("schema_raw", "")
+schema_meta = get_widget("schema_meta", "")
+schema_gold = get_widget("schema_gold", "")
+raw_volume = get_widget("raw_volume", "")
 target = get_target_quarter()
 
+ensure_volume(spark, catalog, schema_raw, raw_volume)
 OUT = volume_dir(catalog, schema_raw, raw_volume, "inhouse_cms")
 ensure_dir(OUT)
+print(f"Output dir: {OUT}")
+print(f"Target quarter: {target if target else 'ALL'}")
 
 # COMMAND ----------
 anchors = read_anchors(spark, catalog, schema_meta)
-macro = read_macro(spark, catalog, schema_gold)
+macro = read_macro(spark, catalog, schema_raw if False else "gold")
 periods = quarters_to_generate(anchors, target)
 print(f"Output: {OUT}\nQuarters: {periods}")
 

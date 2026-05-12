@@ -18,16 +18,16 @@
 # COMMAND ----------
 import glob
 
-dbutils.widgets.text("catalog", "finance_demo")
-dbutils.widgets.text("schema_raw", "raw_data")
-dbutils.widgets.text("schema_meta", "_meta")
-dbutils.widgets.text("raw_volume", "files")
+dbutils.widgets.text("catalog", "")
+dbutils.widgets.text("schema_raw", "")
+dbutils.widgets.text("schema_meta", "")
+dbutils.widgets.text("raw_volume", "")
 dbutils.widgets.text("tolerance_pct", "2.0")
 
-catalog = get_widget("catalog", "finance_demo")
-schema_raw = get_widget("schema_raw", "raw_data")
-schema_meta = get_widget("schema_meta", "_meta")
-raw_volume = get_widget("raw_volume", "files")
+catalog = get_widget("catalog", "")
+schema_raw = get_widget("schema_raw", "")
+schema_meta = get_widget("schema_meta", "")
+raw_volume = get_widget("raw_volume", "")
 tol = float(get_widget("tolerance_pct", "2.0")) / 100.0
 
 anchors = read_anchors(spark, catalog, schema_meta)

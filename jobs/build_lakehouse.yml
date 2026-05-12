@@ -1,7 +1,7 @@
 resources:
   jobs:
     build_lakehouse:
-      name: finance-demo-build-lakehouse
+      name: finance-demo-build-lakehouse-${bundle.target}
       description: >
         Run the Lakeflow pipeline that materializes bronze → silver → gold
         from files in /Volumes/${var.catalog}/raw_data/files/. Run this after
@@ -9,6 +9,13 @@ resources:
         finance-demo-ingest-10q has regenerated a specific quarter).
       max_concurrent_runs: 1
       email_notifications: {}
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - polars==1.30.0
+              - mimesis==18.0.0
       tasks:
         - task_key: run_lakehouse_pipeline
           pipeline_task:
@@ -16,6 +23,7 @@ resources:
             full_refresh: false
 
         - task_key: validate_gold_vs_anchors
+          environment_key: default
           depends_on:
             - task_key: run_lakehouse_pipeline
           notebook_task:

@@ -16,11 +16,11 @@
 # MAGIC %run ./_lib
 
 # COMMAND ----------
-dbutils.widgets.text("catalog", "finance_demo")
-dbutils.widgets.text("schema_meta", "_meta")
+dbutils.widgets.text("catalog", "")
+dbutils.widgets.text("schema_meta", "")
 
-catalog = get_widget("catalog", "finance_demo")
-schema_meta = get_widget("schema_meta", "_meta")
+catalog = get_widget("catalog", "")
+schema_meta = get_widget("schema_meta", "")
 print(f"Seeding {catalog}.{schema_meta}.dim_period_anchors")
 
 # COMMAND ----------

@@ -1,7 +1,7 @@
 resources:
   jobs:
     generate_data:
-      name: finance-demo-generate-data
+      name: finance-demo-generate-data-${bundle.target}
       description: >
         Synthesize source-shaped raw files into /Volumes/${var.catalog}/raw_data/files/.
 
@@ -12,8 +12,15 @@ resources:
         _meta.dim_period_anchors.
       max_concurrent_runs: 1
       email_notifications: {}
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - --requirement /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}/files/requirements.txt                              
       tasks:
         - task_key: generate_macro_environment
+          environment_key: default
           notebook_task:
             notebook_path: ../data/generators/00_macro_environment.py
             source: WORKSPACE
@@ -22,6 +29,7 @@ resources:
               schema_gold: ${var.schema_gold}
 
         - task_key: seed_period_anchors
+          environment_key: default
           depends_on:
             - task_key: generate_macro_environment
           notebook_task:
@@ -32,6 +40,7 @@ resources:
               schema_meta: ${var.schema_meta}
 
         - task_key: generate_ariba_files
+          environment_key: default
           depends_on:
             - task_key: seed_period_anchors
           notebook_task:
@@ -44,6 +53,7 @@ resources:
               raw_volume: ${var.raw_volume}
 
         - task_key: generate_fusion_files
+          environment_key: default
           depends_on:
             - task_key: seed_period_anchors
           notebook_task:
@@ -56,6 +66,7 @@ resources:
               raw_volume: ${var.raw_volume}
 
         - task_key: generate_cms_files
+          environment_key: default
           depends_on:
             - task_key: seed_period_anchors
           notebook_task:
@@ -68,6 +79,7 @@ resources:
               raw_volume: ${var.raw_volume}
 
         - task_key: reconcile_tie_out
+          environment_key: default
           depends_on:
             - task_key: generate_ariba_files
             - task_key: generate_fusion_files

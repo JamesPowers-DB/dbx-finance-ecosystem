@@ -11,10 +11,10 @@
 # MAGIC Implementation deferred to next step.
 
 # COMMAND ----------
-dbutils.widgets.text("catalog", "finance_demo")
-dbutils.widgets.text("schema_raw", "raw_data")
-dbutils.widgets.text("schema_meta", "_meta")
-dbutils.widgets.text("raw_volume", "files")
+dbutils.widgets.text("catalog", "")
+dbutils.widgets.text("schema_raw", "")
+dbutils.widgets.text("schema_meta", "")
+dbutils.widgets.text("raw_volume", "")
 dbutils.widgets.text("fiscal_year", "")
 dbutils.widgets.text("fiscal_quarter", "")
 

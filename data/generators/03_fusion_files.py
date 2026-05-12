@@ -24,27 +24,31 @@
 # MAGIC %run ./_lib
 
 # COMMAND ----------
-dbutils.widgets.text("catalog", "finance_demo")
-dbutils.widgets.text("schema_raw", "raw_data")
-dbutils.widgets.text("schema_meta", "_meta")
-dbutils.widgets.text("schema_gold", "gold")
-dbutils.widgets.text("raw_volume", "files")
+dbutils.widgets.text("catalog", "")
+dbutils.widgets.text("schema_raw", "")
+dbutils.widgets.text("schema_meta", "")
+dbutils.widgets.text("schema_gold", "")
+dbutils.widgets.text("raw_volume", "")
 dbutils.widgets.text("target_fiscal_year", "")
 dbutils.widgets.text("target_fiscal_quarter", "")
 
-catalog = get_widget("catalog", "finance_demo")
-schema_raw = get_widget("schema_raw", "raw_data")
-schema_meta = get_widget("schema_meta", "_meta")
-schema_gold = get_widget("schema_gold", "gold")
-raw_volume = get_widget("raw_volume", "files")
+catalog = get_widget("catalog", "")
+schema_raw = get_widget("schema_raw", "")
+schema_meta = get_widget("schema_meta", "")
+schema_gold = get_widget("schema_gold", "")
+raw_volume = get_widget("raw_volume", "")
 target = get_target_quarter()
 
+ensure_volume(spark, catalog, schema_raw, raw_volume)
 OUT = volume_dir(catalog, schema_raw, raw_volume, "oracle_fusion")
 ensure_dir(OUT)
+print(f"Output dir: {OUT}")
+print(f"Target quarter: {target if target else 'ALL'}")
+
 
 # COMMAND ----------
 anchors = read_anchors(spark, catalog, schema_meta)
-macro = read_macro(spark, catalog, schema_gold)
+macro = read_macro(spark, catalog, schema_raw if False else "gold")
 periods = quarters_to_generate(anchors, target)
 print(f"Output: {OUT}\nQuarters: {periods}")
 
@@ -265,9 +269,13 @@ def generate_quarter_fusion(fy: int, fq: int):
                     "_helios_segment_code": seg,
                 })
 
-                # 1-4 distribution lines per invoice
+                # 1-4 distribution lines per invoice.
+                # Round each debit independently, then have the last one absorb
+                # the rounding drift so Σ(rounded debits) == inv_amt exactly.
                 n_d = int(rng.choice([1, 2, 3, 4], p=[0.40, 0.30, 0.20, 0.10]))
                 amts_d = renormalize_amounts(rng, n_d, inv_amt, mu=0.0, sigma=0.5)
+                debit_amts = [round(float(amts_d[di]), 2) for di in range(n_d)]
+                debit_amts[-1] = round(inv_amt - sum(debit_amts[:-1]), 2)
                 for di in range(n_d):
                     acct_type = rng.choice(["COGS", "SGA", "RD"], p=[0.70, 0.25, 0.05])
                     ccid = pick_ccid(rng, seg, acct_type)
@@ -276,11 +284,11 @@ def generate_quarter_fusion(fy: int, fq: int):
                         "invoice_id": next_je_header_id + idx,
                         "distribution_line_number": di + 1,
                         "code_combination_id": ccid,
-                        "amount": round(float(amts_d[di]), 2),
+                        "amount": debit_amts[di],
                         "period_name": period_name_for(fy, m),
                     })
 
-                # Corresponding JE: DR expense / CR AP
+                # Corresponding JE: DR expense / CR AP (balanced to the cent)
                 je_id = next_je_header_id + 500_000 + idx
                 je_headers.append({
                     "je_header_id": je_id,
@@ -300,15 +308,14 @@ def generate_quarter_fusion(fy: int, fq: int):
                         "je_header_id": je_id,
                         "je_line_num": line_no,
                         "code_combination_id": ap_dist_rows[-n_d + di]["code_combination_id"],
-                        "entered_dr": round(float(amts_d[di]), 2),
+                        "entered_dr": debit_amts[di],
                         "entered_cr": 0.0,
-                        "accounted_dr": round(float(amts_d[di]), 2),
+                        "accounted_dr": debit_amts[di],
                         "accounted_cr": 0.0,
                         "description": f"AP {inv_num} line {di + 1}",
                     })
-                # Credit AP (single line that balances)
                 line_no += 1
-                ap_ccid = pick_ccid(rng, seg, "BS")  # AP is on balance sheet
+                ap_ccid = pick_ccid(rng, seg, "BS")
                 je_lines.append({
                     "je_header_id": je_id,
                     "je_line_num": line_no,

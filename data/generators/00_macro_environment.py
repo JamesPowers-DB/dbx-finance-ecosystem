@@ -14,11 +14,11 @@
 # MAGIC %run ./_lib
 
 # COMMAND ----------
-dbutils.widgets.text("catalog", "finance_demo")
-dbutils.widgets.text("schema_gold", "gold")
+dbutils.widgets.text("catalog", "")
+dbutils.widgets.text("schema_gold", "")
 
-catalog = get_widget("catalog", "finance_demo")
-schema_gold = get_widget("schema_gold", "gold")
+catalog = get_widget("catalog", "")
+schema_gold = get_widget("schema_gold", "")
 print(f"Writing to {catalog}.{schema_gold}.dim_macro_environment")
 
 # COMMAND ----------

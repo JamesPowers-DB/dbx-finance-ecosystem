@@ -245,6 +245,24 @@ SPEND_CATEGORY_CODES = [c["code"] for c in SPEND_CATEGORIES]
 MATGROUP_NOISE_RATE = 0.08
 MAVERICK_SPEND_RATE = 0.06
 
+# Shared TXZ01 description templates. Each pattern uses any subset of
+# {adj}, {noun}, {part_no}, {model_series}, {qty} — all are passed in.
+# Category vocabulary (nouns/adjs/extras) carries the category signal; the
+# patterns are intentionally generic so adding a new category doesn't require
+# new pattern strings.
+DESCRIPTION_PATTERNS = [
+    "{adj} {noun}, P/N {part_no}",
+    "{adj} {noun} — {model_series}",
+    "{noun}, {adj}, P/N {part_no}",
+    "{adj} {noun} assembly, P/N {part_no}",
+    "{noun} — {model_series}",
+    "{adj} {noun} kit, qty {qty}",
+    "{noun} replacement, {adj}",
+    "{adj} {noun}, lot {part_no}",
+    "{noun} — {model_series}, qty {qty}",
+    "{adj} {noun}, {model_series}",
+]
+
 
 # COMMAND ----------
 # MAGIC %md ## Anchor + macro readers
@@ -273,6 +291,22 @@ def volume_dir(catalog: str, schema_raw: str, raw_volume: str, *parts: str) -> s
 
 def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
+
+
+def ensure_catalog_schema(spark, catalog: str, schema: str) -> None:
+    """Idempotent: create catalog + schema if missing. Required before any
+    table write or volume reference in that schema."""
+    spark.sql(f"CREATE CATALOG IF NOT EXISTS `{catalog}`")
+    spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")
+
+
+def ensure_volume(spark, catalog: str, schema: str, volume: str) -> None:
+    """Idempotent: create catalog + schema + volume if missing. Required before
+    any os.makedirs / file write under /Volumes/<catalog>/<schema>/<volume>/.
+    `os.makedirs` cannot create the volume itself — only subdirectories of an
+    existing volume — so this MUST run before `ensure_dir(volume_dir(...))`."""
+    ensure_catalog_schema(spark, catalog, schema)
+    spark.sql(f"CREATE VOLUME IF NOT EXISTS `{catalog}`.`{schema}`.`{volume}`")
 
 
 def write_csv(df: pl.DataFrame, path: str) -> None:

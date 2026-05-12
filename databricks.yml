@@ -8,7 +8,7 @@ include:
 variables:
   catalog:
     description: Unity Catalog name for this project
-    default: finance_demo
+    default: horizontal_finance
 
   schema_raw:
     description: Raw landing zone — managed volume holds files from all source systems
@@ -40,11 +40,21 @@ variables:
     default: files
 
 targets:
+  # Both targets use mode: production for deterministic resource naming. Dev/prod
+  # separation is achieved by pointing at different catalogs (horizontal_finance_dev
+  # vs horizontal_finance). This avoids DAB's development-mode auto-prefix preset,
+  # which caused state-file drift when the prefix mechanic changed between deploys.
   dev:
-    mode: development
+    mode: production
     default: true
     workspace:
+      host: https://e2-demo-field-eng.cloud.databricks.com
       profile: DEFAULT
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    run_as:
+      user_name: james.powers@databricks.com
+    variables:
+      catalog: horizontal_finance_dev
 
   prod:
     mode: production

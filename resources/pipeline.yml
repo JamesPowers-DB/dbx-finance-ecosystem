@@ -1,7 +1,7 @@
 resources:
   pipelines:
     lakehouse:
-      name: finance-demo-lakehouse
+      name: finance-demo-lakehouse-${bundle.target}
       catalog: ${var.catalog}
       schema: ${var.schema_silver}
       serverless: true

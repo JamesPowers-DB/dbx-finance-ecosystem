@@ -25,19 +25,20 @@
 # MAGIC %run ./_lib
 
 # COMMAND ----------
-dbutils.widgets.text("catalog", "finance_demo")
-dbutils.widgets.text("schema_raw", "raw_data")
-dbutils.widgets.text("schema_meta", "_meta")
-dbutils.widgets.text("raw_volume", "files")
+dbutils.widgets.text("catalog", "")
+dbutils.widgets.text("schema_raw", "")
+dbutils.widgets.text("schema_meta", "")
+dbutils.widgets.text("raw_volume", "")
 dbutils.widgets.text("target_fiscal_year", "")
 dbutils.widgets.text("target_fiscal_quarter", "")
 
-catalog = get_widget("catalog", "finance_demo")
-schema_raw = get_widget("schema_raw", "raw_data")
-schema_meta = get_widget("schema_meta", "_meta")
-raw_volume = get_widget("raw_volume", "files")
+catalog = get_widget("catalog", "")
+schema_raw = get_widget("schema_raw", "")
+schema_meta = get_widget("schema_meta", "")
+raw_volume = get_widget("raw_volume", "")
 target = get_target_quarter()
 
+ensure_volume(spark, catalog, schema_raw, raw_volume)
 OUT = volume_dir(catalog, schema_raw, raw_volume, "sap_ariba")
 ensure_dir(OUT)
 print(f"Output dir: {OUT}")
@@ -336,8 +337,8 @@ def generate_quarter(fy: int, fq: int):
                     # MATNR: MAT-<catCode4>-<seq>
                     matnr = f"MAT-{cat['matgroup']}-{int(rng_po.integers(0, 1_000_000)):06d}"
 
-                    # Build TXZ01 description from category templates
-                    pattern = cat["patterns"][int(rng_po.integers(0, len(cat["patterns"])))]
+                    # Build TXZ01 description — category vocab + shared pattern
+                    pattern = DESCRIPTION_PATTERNS[int(rng_po.integers(0, len(DESCRIPTION_PATTERNS)))]
                     adj = cat["adjs"][int(rng_po.integers(0, len(cat["adjs"])))]
                     noun = cat["nouns"][int(rng_po.integers(0, len(cat["nouns"])))]
                     extra = cat["extras"][int(rng_po.integers(0, len(cat["extras"])))]
@@ -346,14 +347,11 @@ def generate_quarter(fy: int, fq: int):
                     except (IndexError, ValueError):
                         extra_filled = extra
                     try:
-                        if "{adj}" in pattern and "{noun}" in pattern and ("{qty}" in pattern):
-                            txz01 = pattern.format(adj=adj, noun=noun, qty=int(qty),
-                                                    part_no=f"{int(rng_po.integers(0, 1_000_000)):06d}",
-                                                    model_series=extra_filled)
-                        else:
-                            txz01 = pattern.format(adj=adj, noun=noun,
-                                                    part_no=f"{int(rng_po.integers(0, 1_000_000)):06d}",
-                                                    model_series=extra_filled)
+                        txz01 = pattern.format(
+                            adj=adj, noun=noun, qty=int(qty),
+                            part_no=f"{int(rng_po.integers(0, 1_000_000)):06d}",
+                            model_series=extra_filled,
+                        )
                     except (KeyError, IndexError):
                         txz01 = f"{adj} {noun} — {extra_filled}"
 
@@ -393,7 +391,7 @@ def generate_quarter(fy: int, fq: int):
             po_lines = [l for l in all_ekpo if l["EBELN"] == h["EBELN"]]
             net = sum(l["NETWR"] for l in po_lines)
             tax = round(net * rng_inv.uniform(0.0, 0.08), 2)
-            bldat = h["AEDAT"] + timedelta(days=int(rng_inv.lognormal(2.0, 0.4).clip(0, 60)))
+            bldat = h["AEDAT"] + timedelta(days=int(np.clip(rng_inv.lognormal(2.0, 0.4), 0, 60)))
             invoice_rows.append({
                 "BELNR": f"INV-{(fy * 10_000_000) + (fq * 1_000_000) + len(invoice_rows):010d}",
                 "EBELN": h["EBELN"], "LIFNR": h["LIFNR"], "BUKRS": h["BUKRS"],

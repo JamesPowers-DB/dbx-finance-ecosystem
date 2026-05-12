@@ -1,6 +1,8 @@
 resources:
   catalogs:
-    finance_demo:
+    # Bundle-internal handle. The deployed catalog name comes from `name` below;
+    # this key just gives other bundle resources a way to reference this one.
+    main:
       name: ${var.catalog}
       comment: >
         Helios Industrial Group demo — filing-anchored, fully anonymized
