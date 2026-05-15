@@ -1,0 +1,115 @@
+resources:
+  jobs:
+    train_spend_classifier:
+      name: finance-demo-train-spend-classifier-${bundle.target}
+      description: >
+        End-to-end training orchestration for the spend-classification model.
+
+        DAG:
+          prepare_features ──┬──▶ train_baseline ───────┐
+                             └──▶ train_embedding ─────┴──▶ evaluate ──▶ batch_inference ──▶ sourcing_strategy_view
+
+        Inputs: gold.fact_spend (populated by the build_lakehouse job).
+        Outputs:
+          - <catalog>.ml.{spend_clf_train, spend_clf_holdout, spend_clf_maverick_holdout}
+          - <catalog>.ml.spend_classifier (UC-registered model with @challenger / @challenger_embedding / @production aliases)
+          - <catalog>.ml.spend_clf_eval_runs (eval history)
+          - <catalog>.ml.spend_clf_predictions (audit trail of every scored row)
+          - <catalog>.gold.fact_spend (predictions MERGEd into unspsc_family_code / classification_confidence / managed_spend_flag)
+          - <catalog>.gold.vw_sourcing_strategy (sourcing-org analytics view)
+
+        Run this after `build_lakehouse` has populated gold. See `ml/README.md`
+        for the full model spec and training process.
+      max_concurrent_runs: 1
+      email_notifications: {}
+      environments:
+        - environment_key: ml_train
+          spec:
+            client: "2"
+            dependencies:
+              - --requirement /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}/files/requirements.txt
+              - --requirement /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}/files/requirements-ml.txt
+      tasks:
+        - task_key: prepare_features
+          environment_key: ml_train
+          notebook_task:
+            notebook_path: ../ml/spend_classification/prepare_features.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_gold: ${var.schema_gold}
+              schema_ml: ${var.schema_ml}
+              maverick_threshold: "0.15"
+              test_size: "0.20"
+              random_seed: "42"
+
+        - task_key: train_baseline
+          environment_key: ml_train
+          depends_on:
+            - task_key: prepare_features
+          notebook_task:
+            notebook_path: ../ml/spend_classification/train_baseline.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_ml: ${var.schema_ml}
+              model_name: spend_classifier
+              model_alias: challenger
+
+        - task_key: train_embedding
+          environment_key: ml_train
+          depends_on:
+            - task_key: prepare_features
+          notebook_task:
+            notebook_path: ../ml/spend_classification/train_embedding.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_ml: ${var.schema_ml}
+              model_name: spend_classifier
+              model_alias: challenger_embedding
+              embedding_endpoint: databricks-bge-large-en
+              batch_size: "1000"
+
+        - task_key: evaluate
+          environment_key: ml_train
+          depends_on:
+            - task_key: train_baseline
+            - task_key: train_embedding
+          notebook_task:
+            notebook_path: ../ml/spend_classification/evaluate.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_ml: ${var.schema_ml}
+              model_name: spend_classifier
+
+        - task_key: batch_inference
+          environment_key: ml_train
+          depends_on:
+            - task_key: evaluate
+          notebook_task:
+            notebook_path: ../ml/spend_classification/batch_inference.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_gold: ${var.schema_gold}
+              schema_ml: ${var.schema_ml}
+              model_name: spend_classifier
+              model_alias: production
+              confidence_threshold_managed: "0.75"
+
+        - task_key: sourcing_strategy_view
+          environment_key: ml_train
+          depends_on:
+            - task_key: batch_inference
+          notebook_task:
+            notebook_path: ../ml/spend_classification/sourcing_strategy_view.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_gold: ${var.schema_gold}
+              schema_silver: ${var.schema_silver}
+
+      queue:
+        enabled: true

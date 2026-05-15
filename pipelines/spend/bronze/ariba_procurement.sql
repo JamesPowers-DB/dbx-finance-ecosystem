@@ -1,56 +1,9 @@
 -- ============================================================================
--- BRONZE — SAP Ariba (procurement)
+-- BRONZE — SAP Ariba procurement (POs, invoices, sourcing, supplier scorecards)
 -- ============================================================================
 -- Target schema: ${schema_bronze_ariba}
 -- Reads files from: /Volumes/${catalog}/${schema_raw}/${raw_volume}/sap_ariba/
--- Naming convention: ALL_CAPS with German codes (LIFNR, EBELN, EKKO, EKPO, RBKP)
---
--- Pattern: MATERIALIZED VIEW for flat one-shot files (read_files batch);
--- STREAMING TABLE for per-quarter wildcard globs (Auto Loader).
 -- ============================================================================
-
--- ---- Flat files (one CSV each, batch read) ---------------------------------
-
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_bronze_ariba}.LFA1_SUPPLIER_MASTER
-COMMENT "SAP supplier master (LFA1). Source: Ariba export. ML hint: _supplier_category_primary and _maverick_propensity carry the supervised-label / drift signals used by spend classification."
-AS SELECT
-  *,
-  _metadata.file_path AS _source_file,
-  _metadata.file_modification_time AS _ingested_at
-FROM read_files(
-  "/Volumes/${catalog}/${schema_raw}/${raw_volume}/sap_ariba/LFA1_SUPPLIER_MASTER.csv",
-  format => "csv",
-  header => true,
-  inferColumnTypes => true
-);
-
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_bronze_ariba}.ARIBA_SOURCING_EVENT
-COMMENT "Ariba sourcing events (RFQ / RFP / Auction). AwardedAmount feeds the Phase 2 savings-tracking metric."
-AS SELECT
-  *,
-  _metadata.file_path AS _source_file,
-  _metadata.file_modification_time AS _ingested_at
-FROM read_files(
-  "/Volumes/${catalog}/${schema_raw}/${raw_volume}/sap_ariba/ARIBA_SOURCING_EVENT.csv",
-  format => "csv",
-  header => true,
-  inferColumnTypes => true
-);
-
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_bronze_ariba}.ARIBA_CONTRACT_WORKSPACE
-COMMENT "Ariba contract workspace (inbound contracts). TotalCommittedSpend vs ActualSpendToDate drives the Phase 2 contract-leakage detection."
-AS SELECT
-  *,
-  _metadata.file_path AS _source_file,
-  _metadata.file_modification_time AS _ingested_at
-FROM read_files(
-  "/Volumes/${catalog}/${schema_raw}/${raw_volume}/sap_ariba/ARIBA_CONTRACT_WORKSPACE.csv",
-  format => "csv",
-  header => true,
-  inferColumnTypes => true
-);
-
--- ---- Per-quarter files (wildcard glob, streaming Auto Loader) --------------
 
 CREATE OR REFRESH STREAMING TABLE ${schema_bronze_ariba}.EKKO_PO_HEADER
 COMMENT "SAP PO header (EKKO). One row per purchase order. Per-quarter file partitioned by AEDAT."
@@ -86,6 +39,19 @@ AS SELECT
   _metadata.file_modification_time AS _ingested_at
 FROM STREAM read_files(
   "/Volumes/${catalog}/${schema_raw}/${raw_volume}/sap_ariba/RBKP_INVOICE_HEADER_*.csv",
+  format => "csv",
+  header => true,
+  inferColumnTypes => true
+);
+
+CREATE OR REFRESH MATERIALIZED VIEW ${schema_bronze_ariba}.ARIBA_SOURCING_EVENT
+COMMENT "Ariba sourcing events (RFQ / RFP / Auction). AwardedAmount feeds the Phase 2 savings-tracking metric."
+AS SELECT
+  *,
+  _metadata.file_path AS _source_file,
+  _metadata.file_modification_time AS _ingested_at
+FROM read_files(
+  "/Volumes/${catalog}/${schema_raw}/${raw_volume}/sap_ariba/ARIBA_SOURCING_EVENT.csv",
   format => "csv",
   header => true,
   inferColumnTypes => true

@@ -22,6 +22,9 @@ variables:
   schema_bronze_cms:
     description: Bronze tables shaped like the in-house contract management system
     default: bronze_cms
+  schema_bronze_workday:
+    description: Bronze tables shaped like Workday HCM native exports (HR workforce data)
+    default: bronze_workday
   schema_silver:
     description: Cleaned, deduplicated, conformed entities across all three sources
     default: silver

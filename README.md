@@ -81,7 +81,7 @@ Targets: `dev` (profile `aws-e2-demo-field-eng`, mode development, default) and 
 - ✅ DAB scaffold (`databricks.yml`, `resources/`, `jobs/`, `pipelines/` stubs)
 - ✅ Data generators — anchor-driven Polars + NumPy + Mimesis; see [`data/generators/README.md`](data/generators/README.md)
 - ⏳ Bronze / silver / gold SQL — pipeline files are stubs with TODO headers; next step (`fe-databricks-tools:databricks-resource-deployment`)
-- ⏳ 10-Q AI extraction notebooks (`ml/notebooks/01_extract_10q.py`, `02_review_anchor_draft.py`, `03_regenerate_quarter.py`) — stubs; next step
+- ⏳ 10-Q AI extraction notebooks (`data/ml/extract_10q.py`, `review_anchor_draft.py`, `regenerate_quarter.py`) — stubs; deferred behind ML spend-classification
 
 The generators embed ML-friendly signals (30 spend categories, supplier→category mappings, noisy MATGROUP labels, maverick spend, rich descriptions, ground-truth label) so Phase 2 spend classification has training data ready out of the box. See [`data/generators/README.md`](data/generators/README.md#spend-classification--whats-in-the-data-for-ml) for the full ML-data design.
 

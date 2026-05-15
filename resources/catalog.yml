@@ -38,6 +38,13 @@ resources:
         Bronze — In-house contract management system. Clean flat snake_case.
         1:1 with source JSON, plus audit columns.
 
+    bronze_workday:
+      catalog_name: ${var.catalog}
+      name: ${var.schema_bronze_workday}
+      comment: >
+        Bronze — Workday HCM shape. snake_case with Workday's "worker" /
+        "organization" vocabulary. SCD Type 2 history per worker.
+
     silver:
       catalog_name: ${var.catalog}
       name: ${var.schema_silver}

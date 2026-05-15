@@ -68,7 +68,7 @@ if target is None or not os.path.exists(PERIODS_FILE):
         m += 1
         if m == 13: m, y = 1, y + 1
     df = pl.DataFrame({
-        "period_name": [f"{m.strftime('%b').upper()}-{m.year % 100:02d}" for m in months],
+        "period_name": [f"{m.year:04d}-{m.month:02d}" for m in months],
         "period_year": [m.year for m in months],
         "period_num": [m.month for m in months],
         "start_date": months,
@@ -221,7 +221,9 @@ def macro_factor(year: int, month: int, key: str) -> float:
 
 
 def period_name_for(year: int, month: int) -> str:
-    return date(year, month, 1).strftime("%b").upper() + f"-{year % 100:02d}"
+    # YYYY-MM (sorts lexicographically = sorts chronologically). Diverges slightly
+    # from Oracle's usual MMM-YY format ("JAN-25") in favor of demo usability.
+    return f"{year:04d}-{month:02d}"
 
 
 def generate_quarter_fusion(fy: int, fq: int):

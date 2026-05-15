@@ -12,6 +12,7 @@ Anchor-driven data generators that synthesize raw source-system files for the He
 | `02_ariba_files.py` | `sap_ariba/*.csv` | LFA1 supplier master + Ariba contract workspace + sourcing events + per-quarter EKKO / EKPO / RBKP / supplier scorecard |
 | `03_fusion_files.py` | `oracle_fusion/*.{csv,parquet}` | COA + supplier/customer sites + per-quarter GL JE headers/lines / AP / AR / trial balance / balances |
 | `04_cms_files.py` | `inhouse_cms/*.jsonl` | Outbound contracts + parties + line items + amendments + performance obligations + per-quarter billing schedule |
+| `05_workday_workers.py` | `workday/workers.csv` | Workday-shaped employee SCD Type 2 history. Active-worker count per (fy, fq, segment) tracks anchor `headcount_total`. Drives `gold.dim_employees` → `gold.fact_emp_quarterly_cost`. |
 | `99_reconcile.py` | (assertion only) | Verifies Ariba spend, CMS revenue, and Fusion GL balance vs. anchors. Fails the job on breach. |
 
 ## How the anchoring works
@@ -126,9 +127,9 @@ This runs three tasks in order:
 
 | Task | Notebook | What it does |
 |---|---|---|
-| `extract_10q` | `ml/notebooks/01_extract_10q.py` | `ai_extract` / `AI_QUERY` (Claude) parses the HTML into a draft row per segment + CONSOL → writes to `_meta.dim_period_anchors_draft` with a `confidence_score` |
-| `review_anchor_draft` | `ml/notebooks/02_review_anchor_draft.py` | Human-in-the-loop notebook. Shows draft vs. prior quarter diff; you confirm the 1/10 scaling + Helios segment renames; on accept it `MERGE`s into `_meta.dim_period_anchors` |
-| `regenerate_quarter` | `ml/notebooks/03_regenerate_quarter.py` | Re-runs `02_ariba_files.py`, `03_fusion_files.py`, `04_cms_files.py` with `target_fiscal_year` + `target_fiscal_quarter` set → only that quarter's per-quarter files are rewritten. Stable files (supplier master, contracts, COA) are not touched. |
+| `extract_10q` | `data/ml/extract_10q.py` | `ai_extract` / `AI_QUERY` (Claude) parses the HTML into a draft row per segment + CONSOL → writes to `_meta.dim_period_anchors_draft` with a `confidence_score` |
+| `review_anchor_draft` | `data/ml/review_anchor_draft.py` | Human-in-the-loop notebook. Shows draft vs. prior quarter diff; you confirm the 1/10 scaling + Helios segment renames; on accept it `MERGE`s into `_meta.dim_period_anchors` |
+| `regenerate_quarter` | `data/ml/regenerate_quarter.py` | Re-runs `02_ariba_files.py`, `03_fusion_files.py`, `04_cms_files.py` with `target_fiscal_year` + `target_fiscal_quarter` set → only that quarter's per-quarter files are rewritten. Stable files (supplier master, contracts, COA) are not touched. |
 
 ### 3. Rebuild the lakehouse
 
@@ -148,7 +149,7 @@ Run `ingest_10q` once per quarter, accepting each draft before moving to the nex
 
 ### What if numbers change historically (source filer restates)?
 
-Update the relevant row in `_meta.dim_period_anchors` directly, then run `03_regenerate_quarter.py` with the affected quarter. The generators are idempotent — re-running just overwrites the quarter's files.
+Update the relevant row in `_meta.dim_period_anchors` directly, then run `data/ml/regenerate_quarter.py` with the affected quarter. The generators are idempotent — re-running just overwrites the quarter's files.
 
 ---
 

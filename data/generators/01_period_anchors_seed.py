@@ -9,7 +9,7 @@
 # MAGIC exact — plausibly "real industrial conglomerate at $3.85B FY revenue."
 # MAGIC
 # MAGIC Future quarters are NOT added here. They flow through:
-# MAGIC `ml/notebooks/01_extract_10q.py` → `02_review_anchor_draft.py` →
+# MAGIC `data/ml/extract_10q.py` → `review_anchor_draft.py` →
 # MAGIC MERGE into this table.
 
 # COMMAND ----------

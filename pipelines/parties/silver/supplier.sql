@@ -27,7 +27,10 @@ WITH ariba_suppliers AS (
     ERSDA                                  AS created_date,
     _supplier_category_primary             AS category_primary,
     _supplier_category_secondary_json      AS category_secondary_json,
-    _maverick_propensity                   AS maverick_propensity,
+    -- Bronze read_files() infers _maverick_propensity as STRING from CSV;
+    -- cast to DOUBLE so downstream consumers (dim_supplier, fact_spend, ML feature prep)
+    -- don't have to keep re-casting and don't hit BIGINT-unification errors in COALESCE.
+    CAST(_maverick_propensity AS DOUBLE)   AS maverick_propensity,
     _industry_segment_affinity             AS segment_affinity
   FROM ${schema_bronze_ariba}.LFA1_SUPPLIER_MASTER
 ),
@@ -48,10 +51,11 @@ fusion_sites AS (
     END                                                               AS region,
     NULL                                                              AS language_code,
     NULL                                                              AS created_date,
-    NULL                                                              AS category_primary,
-    NULL                                                              AS category_secondary_json,
-    NULL                                                              AS maverick_propensity,
-    NULL                                                              AS segment_affinity
+    CAST(NULL AS STRING)                                              AS category_primary,
+    CAST(NULL AS STRING)                                              AS category_secondary_json,
+    -- Match Ariba side's DOUBLE type for the UNION ALL.
+    CAST(NULL AS DOUBLE)                                              AS maverick_propensity,
+    CAST(NULL AS STRING)                                              AS segment_affinity
   FROM ${schema_bronze_fusion}.ap_supplier_sites_all
   WHERE purchasing_site_flag = 'Y'
 )

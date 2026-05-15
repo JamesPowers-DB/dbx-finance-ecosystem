@@ -27,7 +27,7 @@ resources:
           depends_on:
             - task_key: run_lakehouse_pipeline
           notebook_task:
-            notebook_path: ../ml/notebooks/99_validate_gold_vs_anchors.py
+            notebook_path: ../ml/notebooks/validate_gold_vs_anchors.py
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}

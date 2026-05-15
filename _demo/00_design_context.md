@@ -257,7 +257,7 @@ Implementation order:
 6. Silver SQL — conformed canonical entities.
 7. Gold SQL — facts + dims with Phase 2 hooks reserved.
 8. Gold-vs-anchor validator (`99_validate_gold_vs_anchors.py`) — final tie-out after pipeline runs.
-9. 10-Q ingestion notebooks (`01_extract_10q.py`, `02_review_anchor_draft.py`, `03_regenerate_quarter.py`).
+9. 10-Q ingestion notebooks (`data/ml/extract_10q.py`, `review_anchor_draft.py`, `regenerate_quarter.py`).
 
 ## 10. Reconciliations vs. original architecture (made during scaffold)
 

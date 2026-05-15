@@ -78,12 +78,26 @@ resources:
               schema_meta: ${var.schema_meta}
               raw_volume: ${var.raw_volume}
 
+        - task_key: generate_workday_workers
+          environment_key: default
+          depends_on:
+            - task_key: seed_period_anchors
+          notebook_task:
+            notebook_path: ../data/generators/05_workday_workers.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_raw: ${var.schema_raw}
+              schema_meta: ${var.schema_meta}
+              raw_volume: ${var.raw_volume}
+
         - task_key: reconcile_tie_out
           environment_key: default
           depends_on:
             - task_key: generate_ariba_files
             - task_key: generate_fusion_files
             - task_key: generate_cms_files
+            - task_key: generate_workday_workers
           notebook_task:
             notebook_path: ../data/generators/99_reconcile.py
             source: WORKSPACE

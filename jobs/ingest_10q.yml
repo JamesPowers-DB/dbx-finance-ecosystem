@@ -37,7 +37,7 @@ resources:
         - task_key: extract_10q
           environment_key: default
           notebook_task:
-            notebook_path: ../ml/notebooks/01_extract_10q.py
+            notebook_path: ../data/ml/extract_10q.py
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
@@ -51,7 +51,7 @@ resources:
           depends_on:
             - task_key: extract_10q
           notebook_task:
-            notebook_path: ../ml/notebooks/02_review_anchor_draft.py
+            notebook_path: ../data/ml/review_anchor_draft.py
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
@@ -64,7 +64,7 @@ resources:
           depends_on:
             - task_key: review_anchor_draft
           notebook_task:
-            notebook_path: ../ml/notebooks/03_regenerate_quarter.py
+            notebook_path: ../data/ml/regenerate_quarter.py
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
