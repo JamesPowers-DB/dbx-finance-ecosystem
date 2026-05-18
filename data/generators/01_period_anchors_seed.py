@@ -18,9 +18,11 @@
 # COMMAND ----------
 dbutils.widgets.text("catalog", "")
 dbutils.widgets.text("schema_meta", "")
+dbutils.widgets.text("schema_ml", "")
 
 catalog = get_widget("catalog", "")
 schema_meta = get_widget("schema_meta", "")
+schema_ml = get_widget("schema_ml", "")
 print(f"Seeding {catalog}.{schema_meta}.dim_period_anchors")
 
 # COMMAND ----------
@@ -150,3 +152,27 @@ empty = spark.createDataFrame([], sdf.schema)
     .option("overwriteSchema", "true")
     .saveAsTable(f"`{catalog}`.`{schema_meta}`.dim_period_anchors_draft"))
 print(f"Initialized empty {catalog}.{schema_meta}.dim_period_anchors_draft")
+
+# COMMAND ----------
+# MAGIC %md ## Initialize ml.invoice_classifications (empty until batch inference runs)
+# MAGIC
+# MAGIC The spend-classification model's batch-inference job MERGEs into this table.
+# MAGIC silver.invoice_classification reads from it, and gold.fact_invoices LEFT
+# MAGIC JOINs that view — so the table must exist (even empty) for the pipeline
+# MAGIC to run before the model has ever scored anything.
+
+# COMMAND ----------
+if schema_ml:
+    spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema_ml}`")
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS `{catalog}`.`{schema_ml}`.invoice_classifications (
+            invoice_line_id BIGINT,
+            predicted_category STRING,
+            classification_confidence DOUBLE,
+            model_version STRING,
+            scored_at TIMESTAMP
+        ) USING DELTA
+    """)
+    print(f"Ensured {catalog}.{schema_ml}.invoice_classifications exists")
+else:
+    print("schema_ml widget not set — skipping ml.invoice_classifications init")

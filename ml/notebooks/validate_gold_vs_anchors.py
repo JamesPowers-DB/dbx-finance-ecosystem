@@ -4,7 +4,7 @@
 # MAGIC
 # MAGIC Runs after the lakehouse pipeline. For each (fiscal_year, fiscal_quarter,
 # MAGIC segment_code) row in _meta.dim_period_anchors, computes the corresponding
-# MAGIC aggregate from gold.fact_revenue and gold.fact_spend, and asserts the
+# MAGIC aggregate from gold.fact_revenue and gold.fact_invoices, and asserts the
 # MAGIC delta is within ±${tolerance_pct}%. Fails the job if any anchor drifts.
 # MAGIC
 # MAGIC Implementation deferred to next step.

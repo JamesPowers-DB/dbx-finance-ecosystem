@@ -38,6 +38,7 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema_meta: ${var.schema_meta}
+              schema_ml: ${var.schema_ml}
 
         - task_key: generate_ariba_files
           environment_key: default
@@ -56,6 +57,7 @@ resources:
           environment_key: default
           depends_on:
             - task_key: seed_period_anchors
+            - task_key: generate_ariba_files   # Fusion now reads Ariba PRs to seed POs
           notebook_task:
             notebook_path: ../data/generators/03_fusion_files.py
             source: WORKSPACE
@@ -63,6 +65,7 @@ resources:
               catalog: ${var.catalog}
               schema_raw: ${var.schema_raw}
               schema_meta: ${var.schema_meta}
+              schema_gold: ${var.schema_gold}
               raw_volume: ${var.raw_volume}
 
         - task_key: generate_cms_files

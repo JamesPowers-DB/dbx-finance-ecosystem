@@ -42,10 +42,10 @@ SELECT
   s.country_code,
   s.category_primary,
   s.maverick_propensity,
-  ROUND(SUM(fs.extended_amount) / 1e6, 2)  AS spend_mm,
-  COUNT(DISTINCT fs.po_number)             AS pos,
-  COUNT(DISTINCT (fs.fiscal_year * 10 + fs.fiscal_quarter)) AS active_quarters
-FROM gold.fact_spend fs
+  ROUND(SUM(fi.amount) / 1e6, 2)           AS spend_mm,
+  COUNT(DISTINCT fi.invoice_id)            AS invoices,
+  COUNT(DISTINCT (fi.fiscal_year * 10 + fi.fiscal_quarter)) AS active_quarters
+FROM gold.fact_invoices fi
 LEFT JOIN gold.dim_supplier s USING (supplier_id)
 GROUP BY ALL
 ORDER BY spend_mm DESC

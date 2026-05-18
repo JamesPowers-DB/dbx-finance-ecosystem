@@ -31,7 +31,9 @@ WITH ariba_suppliers AS (
     -- cast to DOUBLE so downstream consumers (dim_supplier, fact_spend, ML feature prep)
     -- don't have to keep re-casting and don't hit BIGINT-unification errors in COALESCE.
     CAST(_maverick_propensity AS DOUBLE)   AS maverick_propensity,
-    _industry_segment_affinity             AS segment_affinity
+    _industry_segment_affinity             AS segment_affinity,
+    _payment_terms                         AS payment_terms,
+    CAST(_is_regulated_flag AS BOOLEAN)    AS is_regulated_supplier
   FROM ${schema_bronze_ariba}.LFA1_SUPPLIER_MASTER
 ),
 fusion_sites AS (
@@ -55,7 +57,9 @@ fusion_sites AS (
     CAST(NULL AS STRING)                                              AS category_secondary_json,
     -- Match Ariba side's DOUBLE type for the UNION ALL.
     CAST(NULL AS DOUBLE)                                              AS maverick_propensity,
-    CAST(NULL AS STRING)                                              AS segment_affinity
+    CAST(NULL AS STRING)                                              AS segment_affinity,
+    CAST(NULL AS STRING)                                              AS payment_terms,
+    CAST(NULL AS BOOLEAN)                                             AS is_regulated_supplier
   FROM ${schema_bronze_fusion}.ap_supplier_sites_all
   WHERE purchasing_site_flag = 'Y'
 )

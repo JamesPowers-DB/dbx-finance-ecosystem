@@ -71,14 +71,14 @@ ORDER BY contracts DESC;
 -- AP spend but no active inbound contract covering them. (Phase 2 leakage
 -- detection candidates.)
 SELECT
-  fs.segment_code,
-  fs.fiscal_year,
-  fs.fiscal_quarter,
-  COUNT(*)                                    AS po_lines,
-  ROUND(SUM(fs.extended_amount) / 1e6, 2)     AS off_contract_mm
-FROM gold.fact_spend fs
+  fi.segment_code,
+  fi.fiscal_year,
+  fi.fiscal_quarter,
+  COUNT(*)                                    AS invoice_lines,
+  ROUND(SUM(fi.amount) / 1e6, 2)              AS off_contract_mm
+FROM gold.fact_invoices fi
 LEFT JOIN silver.contract_inbound ci
-  ON fs.supplier_id = ci.supplier_id
+  ON fi.supplier_id = ci.supplier_id
  AND ci.status = 'Active'
 WHERE ci.contract_workspace_id IS NULL
 GROUP BY ALL

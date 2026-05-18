@@ -505,3 +505,70 @@ CATEGORY_TO_GL_ACCOUNT = {
 }
 
 COST_CENTERS_PER_SEGMENT = 12  # 4 segments × 12 = 48 cost centers + 4 corporate = 52
+
+
+# COMMAND ----------
+# MAGIC %md ## Spend classification rules (rule-based, deterministic)
+# MAGIC
+# MAGIC Direct vs. Indirect comes straight from the GL account: anything booked to
+# MAGIC a COGS account is Direct (product input), anything to SGA / RD / etc. is
+# MAGIC Indirect (support function). Addressability is per-supplier (most suppliers
+# MAGIC are addressable; a small slice is regulated / non-negotiable).
+
+# COMMAND ----------
+def is_direct_category(category_code: str) -> bool:
+    """Direct = goes into COGS (product input). Indirect = SGA / RD / other."""
+    acct = CATEGORY_TO_GL_ACCOUNT.get(category_code)
+    if acct is None:
+        return False
+    _, acct_type = NATURAL_ACCOUNTS.get(acct, ("", ""))
+    return acct_type == "COGS"
+
+
+REGULATED_SUPPLIER_RATE = 0.08  # ~8% of suppliers flagged regulated → non-addressable invoices
+
+
+# COMMAND ----------
+# MAGIC %md ## Payment terms + AP ops constants
+
+# COMMAND ----------
+# Weighted to give an avg of ~30 days. Net30 dominates, Net15 / Net45 / Net60 in long tail.
+PAYMENT_TERMS_DAYS = {"Net15": 15, "Net30": 30, "Net45": 45, "Net60": 60}
+PAYMENT_TERMS_WEIGHTS = {"Net15": 0.20, "Net30": 0.60, "Net45": 0.15, "Net60": 0.05}
+
+# Of invoices that have been paid: 90% on or before due_date.
+ON_TIME_PAYMENT_RATE = 0.90
+
+# Payment status mix for invoices as of "now":
+#   PAID — paid in full; payment_date populated
+#   OPEN_CURRENT — booked, within terms, not yet paid (current AP)
+#   OPEN_PAST_DUE — past due, not yet paid (problem AP)
+# Recent invoices skew toward OPEN_*; older invoices are almost all PAID.
+PAYMENT_STATUS_MIX_OVERALL = {
+    "PAID":           0.83,
+    "OPEN_CURRENT":   0.14,
+    "OPEN_PAST_DUE":  0.03,
+}
+
+
+# COMMAND ----------
+# MAGIC %md ## PR → PO → Invoice conversion ratios
+# MAGIC
+# MAGIC The procurement chain has friction at each step. PR sums > PO sums >
+# MAGIC Invoice sums. Invoices tie to anchor spend; PO and PR volumes are
+# MAGIC inflated upstream so that 80%-of-X-equals-anchor at each conversion.
+
+# COMMAND ----------
+PR_TO_PO_CONVERSION = 0.80    # 20% of PRs are cancelled / not released
+PO_TO_INVOICE_COVERAGE = 0.80  # 20% of POs are committed-but-not-yet-invoiced in window
+NON_PO_INVOICE_RATE = 0.10     # 10% of invoices have no upstream PO (direct vouchers)
+
+
+# COMMAND ----------
+# MAGIC %md ## SAP PR (EBAN) status codes — for realism
+
+# COMMAND ----------
+# Real EBAN statuses in SAP. We use a simplified subset for the demo.
+PR_STATUS_RELEASED = "B"   # Released (will become a PO)
+PR_STATUS_CANCELLED = "L"  # Cancelled
+PR_STATUS_OPEN = "N"       # Open / not yet processed

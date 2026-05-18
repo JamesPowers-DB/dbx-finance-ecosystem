@@ -10,12 +10,21 @@ resources:
       photon: true
       libraries:
         # ---------------------------------------------------------------- spend
-        - file: { path: ../pipelines/spend/bronze/ariba_procurement.sql }
+        # Bronze: PR (Ariba) + Sourcing (Ariba) + PO (Fusion) + AP (Fusion)
+        - file: { path: ../pipelines/spend/bronze/ariba_purchase_requests.sql }
+        - file: { path: ../pipelines/spend/bronze/ariba_sourcing.sql }
+        - file: { path: ../pipelines/spend/bronze/fusion_po.sql }
         - file: { path: ../pipelines/spend/bronze/fusion_ap.sql }
+        # Silver: PR / PO / invoice_ap (line grain) / sourcing / classification
+        - file: { path: ../pipelines/spend/silver/purchase_request.sql }
         - file: { path: ../pipelines/spend/silver/purchase_order.sql }
         - file: { path: ../pipelines/spend/silver/invoice_ap.sql }
         - file: { path: ../pipelines/spend/silver/sourcing_event.sql }
-        - file: { path: ../pipelines/spend/gold/fact_spend.sql }
+        - file: { path: ../pipelines/spend/silver/invoice_classification.sql }
+        # Gold: PR / PO / invoices (the ML-classified spend surface)
+        - file: { path: ../pipelines/spend/gold/fact_purchase_requests.sql }
+        - file: { path: ../pipelines/spend/gold/fact_purchase_orders.sql }
+        - file: { path: ../pipelines/spend/gold/fact_invoices.sql }
 
         # -------------------------------------------------------------- revenue
         - file: { path: ../pipelines/revenue/bronze/fusion_ar.sql }
@@ -73,4 +82,5 @@ resources:
         schema_silver: ${var.schema_silver}
         schema_gold: ${var.schema_gold}
         schema_meta: ${var.schema_meta}
+        schema_ml: ${var.schema_ml}
         raw_volume: ${var.raw_volume}

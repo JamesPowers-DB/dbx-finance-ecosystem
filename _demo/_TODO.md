@@ -6,19 +6,20 @@
 
 ---
 
-## 📍 Status snapshot (as of 2026-05-12)
+## 📍 Status snapshot (as of 2026-05-15)
 
 **Working end-to-end:**
 - ✅ DAB scaffold + direct deployment engine on `mode: production` (both dev + prod) with `${bundle.target}` suffix on job/pipeline names
 - ✅ Dev catalog `horizontal_finance_dev`, prod catalog `horizontal_finance`
 - ✅ Generators run as serverless notebook tasks; raw files for FY23, FY24, Q1-Q3 2025
-- ✅ Reconciliation gate (`99_reconcile.py`) passes ±2% / strict GL balance
-- ✅ Pipeline SQL implemented end-to-end — 28 files, ~1000 lines
-- ✅ Lakeflow pipeline runs clean — bronze/silver/gold tables populated
-- ✅ Codebase parameterized — no hardcoded catalog/schema/volume names on the deploy path
+- ✅ Reconciliation gate (`99_reconcile.py`) passes ±2% / strict GL balance (5 checks: invoice spend, CMS revenue, GL balance, PR→PO→Invoice cone, AP balance)
+- ✅ **Spend data model redesigned** to PR (Ariba) → PO (Fusion) → Invoice (Fusion) chain. Invoice-line grain. AP creation + payment JEs so AP balance drains. Supplier-level payment terms (Net15/30/45/60). Regulated-supplier flag drives Addressable / Non-Addressable.
+- ✅ Lakeflow pipeline rewired around new model: 3 new gold facts (`fact_purchase_requests`, `fact_purchase_orders`, `fact_invoices`) replacing `fact_spend`. Silver gains `purchase_request` + `invoice_classification`.
+- ✅ ML inference table pattern wired: `ml.invoice_classifications` initialized empty by data-gen seed; `silver.invoice_classification` reads it; `gold.fact_invoices` LEFT-joins → predictions are NULL until batch inference runs.
+- ✅ ML notebooks re-pointed to `gold.fact_invoices` (prepare_features, batch_inference, train_baseline, evaluate, sourcing_strategy_view).
 
 **Next immediate step:**
-**Start the ML spend-classification work** — the headline of the demo. Training data is in `horizontal_finance_dev.gold.fact_spend` with `true_spend_category` as the supervised label.
+**Deploy the Phase B redesign and run the lakehouse pipeline** to confirm the new fact tables populate. Then resume ML model implementation (feature prep + baseline training) against `gold.fact_invoices`.
 
 ---
 
@@ -36,13 +37,16 @@
 - [x] `bundle run build_lakehouse -t dev` populates bronze/silver/gold tables (after switching flat-file bronze tables from `STREAMING TABLE` to `MATERIALIZED VIEW`).
 
 ### Polish on lakehouse — optional, low priority
-- [ ] Quick sanity checks in SQL editor:
+- [ ] Quick sanity checks in SQL editor (see `sql/pipeline_exploration/spend_overview.sql` for the full set):
   ```sql
-  SELECT COUNT(*) FROM horizontal_finance_dev.gold.fact_spend;            -- expect ~750k rows
-  SELECT COUNT(DISTINCT po_number) FROM horizontal_finance_dev.gold.fact_spend;
-  SELECT segment_code, fiscal_year, fiscal_quarter, SUM(extended_amount)/1e6 AS spend_m
-    FROM horizontal_finance_dev.gold.fact_spend
+  SELECT COUNT(*) FROM horizontal_finance_dev.gold.fact_invoices;
+  SELECT segment_code, fiscal_year, fiscal_quarter, SUM(amount)/1e6 AS spend_m
+    FROM horizontal_finance_dev.gold.fact_invoices
     GROUP BY ALL ORDER BY 2, 3, 1;
+  -- PR → PO → invoice funnel volume
+  SELECT 'PR' AS stage, COUNT(*) FROM horizontal_finance_dev.gold.fact_purchase_requests
+  UNION ALL SELECT 'PO', COUNT(*) FROM horizontal_finance_dev.gold.fact_purchase_orders
+  UNION ALL SELECT 'Invoice', COUNT(*) FROM horizontal_finance_dev.gold.fact_invoices;
   ```
 - [ ] Implement `ml/notebooks/99_validate_gold_vs_anchors.py` (currently stub) — assert gold totals tie back to `_meta.dim_period_anchors` ±2%. Wired as final task in `build_lakehouse.yml` but currently a no-op.
 
@@ -97,44 +101,44 @@
 
 ## 🎯 ML spend classification (headline of the demo)
 
-> Goal: build an MLflow-tracked model that classifies a PO line into one of 30 spend categories from its description + supplier + amount + GL coordinates — so sourcing organizations can segment their sourcing strategies (consolidate suppliers in high-spend categories, flag maverick spend, focus negotiations).
+> Goal: build an MLflow-tracked model that classifies an **invoice line** into one of 30 spend categories from its description + supplier + amount + GL coordinates — so sourcing organizations can segment their sourcing strategies (consolidate suppliers in high-spend categories, flag maverick spend, focus negotiations).
 >
-> Training data is already prepared. `gold.fact_spend.true_spend_category` is the supervised label; features are in the same row plus `dim_supplier`. ~750K labeled PO lines across 30 categories with intentional drift (8% MATGROUP noise, 6% maverick spend) that makes the problem non-trivial.
+> Training data: `gold.fact_invoices.true_spend_category` is the supervised label; features include `line_description`, `supplier_*`, `amount`/`quantity`/`unit_price`, `gl_account`, `direct_indirect`, `addressability`. Inference writes to `ml.invoice_classifications`; `gold.fact_invoices` LEFT-joins predictions through `silver.invoice_classification`.
 
 ### Step 1 — Feature engineering
-- [ ] `ml/notebooks/spend_classification/00_prep_training_data.py` — pulls features from `gold.fact_spend` joined with `dim_supplier`, splits train/holdout (80/20 stratified by category, plus a separate **maverick slice** where `supplier_maverick_propensity > 0.15`). Writes:
+- [ ] `ml/spend_classification/prepare_features.py` — pulls features from `gold.fact_invoices` joined with `dim_supplier`, splits train/holdout (80/20 stratified by category, plus a separate **maverick slice** where `supplier_maverick_propensity > 0.15`). Writes:
   - `<catalog>.ml.spend_clf_train` — features + label
   - `<catalog>.ml.spend_clf_holdout` — holdout
   - `<catalog>.ml.spend_clf_maverick_holdout` — hard-case eval slice
 - [ ] Feature set:
-  - **Text**: `line_description` (TXZ01)
-  - **Categorical**: `supplier_id`, `material_group_code`, `segment_code`, `po_doc_type`, `supplier_segment_affinity`, `supplier_region`
-  - **Numeric**: `extended_amount` (log-scaled), `quantity` (log-scaled), `unit_price` (log-scaled)
-  - **Derived**: `is_high_maverick` (= supplier_maverick_propensity > median), `is_cross_segment_supplier`
+  - **Text**: `line_description`
+  - **Categorical**: `supplier_id`, `segment_code`, `payment_terms`, `currency`, `supplier_region`, `gl_account`, `direct_indirect`, `addressability`, `category_primary_hint`
+  - **Numeric**: `amount` / `quantity` / `unit_price` (log-scaled)
+  - **Derived**: `is_maverick_supplier` (= supplier_maverick_propensity > 0.15)
 
 ### Step 2 — Baseline model
-- [ ] `ml/notebooks/spend_classification/01_train_baseline.py` — TF-IDF (line_description) + one-hot + LightGBM multi-class classifier. Hyperparameters: 30 classes, depth ≤ 8, ~500 trees. MLflow autolog. Target: ≥85% top-1 accuracy on holdout.
+- [ ] `ml/spend_classification/train_baseline.py` — TF-IDF (line_description) + one-hot + LightGBM multi-class classifier. Hyperparameters: 30 classes, depth ≤ 8, ~500 trees. MLflow autolog. Target: ≥85% top-1 accuracy on holdout.
 - [ ] Register the baseline model to UC: `<catalog>.ml.spend_classifier`. Tag with `stage = challenger`.
 
 ### Step 3 — Foundation-model variant (optional, but a Databricks showcase)
 - [ ] `ml/notebooks/spend_classification/02_train_fmapi.py` — uses Foundation Model API (databricks-bge-large-en) to embed `line_description`, then a small classifier head on the embedding + tabular features. Compare to baseline.
 
 ### Step 4 — Evaluation
-- [ ] `ml/notebooks/spend_classification/03_evaluate.py` — three reports:
+- [ ] `ml/spend_classification/evaluate.py` — three reports:
   1. Holdout top-1 accuracy + per-category F1 (confusion matrix).
   2. Maverick-slice accuracy (model has to overcome the 6% noise).
-  3. Beat-MATGROUP-alone baseline: how much does the model improve over predicting `MATGROUP → category` lookup?
+  3. Beat-GL-account baseline: how much does the model improve over predicting `gl_account → category` lookup? (COGS catch-all account 5000 covers most direct categories — beating it proves the model uses line_description / supplier signals.)
 - [ ] Promote the winning model to `stage = production` in UC.
 
-### Step 5 — Batch inference back to gold
-- [ ] `ml/notebooks/spend_classification/04_batch_inference.py` — loads production model, scores all `fact_spend` rows, writes predictions back to `fact_spend.unspsc_family_code` + `.classification_confidence` + `.managed_spend_flag` (derive from confidence + PO compliance signals).
+### Step 5 — Batch inference → ml.invoice_classifications
+- [ ] `ml/spend_classification/batch_inference.py` — loads production model, scores all `fact_invoices` rows, MERGEs predictions into `<catalog>.ml.invoice_classifications` keyed by `invoice_line_id`. `gold.fact_invoices` picks them up automatically via the LEFT JOIN through `silver.invoice_classification`.
 - [ ] Wire as a new task in a `jobs/score_spend.yml` job that runs after `build_lakehouse`.
 
 ### Step 6 — Model serving (optional)
 - [ ] Create UC-registered-model-backed serving endpoint for real-time classification (e.g., used by a Lakebase Supplier Master app for inline category suggestions when manually correcting supplier records).
 
 ### Step 7 — Sourcing-strategy outputs
-- [ ] `<catalog>.gold.vw_sourcing_strategy` — gold view that joins `fact_spend` (now with classified categories) with `dim_supplier` and outputs:
+- [ ] `<catalog>.gold.vw_sourcing_strategy` — gold view that joins `fact_invoices` (with classified `predicted_category`) with `dim_supplier`, filtered to `addressability = 'Addressable'`, and outputs:
   - Category × segment × supplier-share table (concentration / tail-spend by category)
   - Top maverick offenders per category
   - Off-contract category spend (joined with `silver.contract_inbound`)
@@ -151,13 +155,24 @@
     - `DESCRIPTION_PATTERNS` (line ~253): generic templates, no change needed.
 
   Other ripple effects:
-  - **Generator changes**: `EKPO_PO_LINE._true_spend_category` becomes two columns (`_true_category_parent`, `_true_category_child`) or stays as a single dotted string (`Professional Services → Consulting`).
+  - **Generator changes**: `EBAN_PR_LINE._true_spend_category` (and its propagation through PO + invoice lines) becomes two columns (`_true_category_parent`, `_true_category_child`) or stays as a single dotted string (`Professional Services → Consulting`).
   - **Model output shape**: hierarchical softmax (parent head + child head with parent-conditioning) is cleaner than independent two-headed classification, but a single flat classifier on `(parent, child)` pairs is the simplest first cut.
   - **Eval slices**: split top-1 accuracy into parent-correct (easier) vs. child-correct (harder); the maverick slice is more interesting at the child tier.
   - **Sourcing strategy view**: roll up to parent for executive summary, drill to child for procurement negotiation.
   - **Maps cleanly to UNSPSC's `Segment → Family` two-level structure** — see the related open question below.
 
   Doing this requires regenerating the synthetic data (the `_true_spend_category` labels change shape) and rebuilding the lakehouse, so it's a Phase-2 effort, not a small patch.
+
+  **Concrete checklist when we tackle this:**
+  - [ ] Define parent taxonomy in `_lib.SPEND_CATEGORIES` (~8 parents covering the 30 children). Confirm groupings with user before regenerating data.
+  - [ ] Materialize the taxonomy as a UC reference table — `<catalog>.gold.dim_spend_category` (`primary_category`, `secondary_category`, `primary_code`, `secondary_code`, optionally `unspsc_family_code`). Pipeline references it instead of the Python list, so the model can't emit categories outside the taxonomy.
+  - [ ] Generators emit `_true_category_primary` + `_true_category_secondary` on PR / PO / invoice lines (replacing `_true_spend_category`).
+  - [ ] `silver.purchase_request` / `silver.purchase_order` / `silver.invoice_ap` project both columns.
+  - [ ] `gold.fact_*` carry `true_category_primary` + `true_category_secondary`.
+  - [ ] **ML inference output splits**: `ml.invoice_classifications` schema becomes `predicted_primary_category`, `predicted_secondary_category`, `primary_confidence`, `secondary_confidence`, `model_version`, `scored_at`. Init in `01_period_anchors_seed.py` updates accordingly.
+  - [ ] `silver.invoice_classification` + `gold.fact_invoices` projections surface both predicted tiers (NULL until first inference run).
+  - [ ] `batch_inference.py` MERGE writes both columns; validation step asserts every `(predicted_primary, predicted_secondary)` pair exists in `dim_spend_category`.
+  - [ ] Re-run `generate_data`, redeploy bundle, re-run pipeline.
 
 ### Open ML questions
 - [ ] **UNSPSC mapping** — should `unspsc_family_code` actually be UNSPSC codes (real taxonomy) or our internal 30-category code? Design doc says "85% auto-classification accuracy to UNSPSC". Simplest: 1:1 map from our 30 categories to a chosen UNSPSC family code each.
@@ -223,8 +238,9 @@
 ## Verification checklist (run after build_lakehouse first lands)
 
 1. [x] `_meta.dim_period_anchors` has rows for FY2023, FY2024, Q1'25 → Q3'25.
-2. [ ] `gold.fact_spend` populated with ~750k PO-line rows; `gold.fact_revenue` populated with billing events.
+2. [ ] `gold.fact_invoices` populated; `gold.fact_purchase_orders` populated; `gold.fact_purchase_requests` populated; `gold.fact_revenue` populated with billing events.
 3. [ ] `gold.fact_fpa_actuals` totals reconcile to anchor `revenue` / `cogs + sga + rd` per (fy, fq, segment) within ±2%.
 4. [x] Reconciliation gate (`99_reconcile.py`) passes for raw files.
 5. [ ] Anonymization audit: zero hits for source filer name / original segment names in UC table content.
 6. [ ] 10-Q replay smoke test.
+7. [ ] `ml.invoice_classifications` exists (empty) after data-generation job; `gold.fact_invoices.predicted_category` resolves to NULL until first inference run.

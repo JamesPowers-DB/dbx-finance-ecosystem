@@ -20,6 +20,8 @@ WITH ranked AS (
     category_secondary_json,
     maverick_propensity,
     segment_affinity,
+    payment_terms,
+    is_regulated_supplier,
     ROW_NUMBER() OVER (PARTITION BY supplier_id
                        ORDER BY CASE WHEN supplier_name IS NOT NULL THEN 0 ELSE 1 END) AS rn
   FROM ${schema_silver}.supplier
@@ -35,6 +37,8 @@ SELECT
   category_secondary_json,
   maverick_propensity,
   segment_affinity,
+  payment_terms,
+  is_regulated_supplier,
   supplier_id                                AS canonical_supplier_id,
   CAST(NULL AS STRING)                       AS entity_resolution_cluster_id
 FROM ranked
