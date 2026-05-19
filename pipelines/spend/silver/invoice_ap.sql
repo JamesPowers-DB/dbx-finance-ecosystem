@@ -8,7 +8,7 @@
 -- Carries everything needed for AP-ops analytics + ML-training payload:
 -- payment_terms, due_date, payment_date, payment_status; line_description,
 -- quantity, unit_price; po_line_id (matched invoices) → silver.purchase_order;
--- _true_spend_category (the supervised label).
+-- _true_category_primary + _true_category_secondary (the 2-tier supervised label).
 -- ============================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW ${schema_silver}.invoice_ap
@@ -56,7 +56,8 @@ SELECT
   CAST(l.amount AS DECIMAL(18, 2))                             AS amount,
   CAST(l.code_combination_id AS BIGINT)                        AS code_combination_id,
   l._segment_code                                              AS segment_code,
-  l._true_spend_category                                       AS true_spend_category,
+  l._true_category_primary                                     AS true_category_primary,
+  l._true_category_secondary                                   AS true_category_secondary,
 
   YEAR(h.invoice_date)                                         AS fiscal_year,
   QUARTER(h.invoice_date)                                      AS fiscal_quarter

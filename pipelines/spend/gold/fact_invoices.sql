@@ -17,16 +17,19 @@
 --                        it). ~8% of suppliers by config.
 --      Addressable     = everything else (sourcing can negotiate / consolidate).
 --
---   3. Spend category (30-cat taxonomy) — ML-predicted via LEFT JOIN to
---      silver.invoice_classification. NULL when batch inference hasn't run yet.
---      true_spend_category is the supervised label (what generators stamp).
+--   3. Spend category (2-tier: 8 parents × 30 leaves)
+--      - true_category_primary / true_category_secondary    → demo-only ground truth
+--      - predicted_primary_category / predicted_secondary_category → ML output
+--        (LEFT JOIN to silver.invoice_classification, NULL until inference runs)
 --
--- Phase 2 hooks (LEFT-joined from ML output, NULL when unscored):
---   predicted_category, classification_confidence, model_version
+-- IMPORTANT (demo vs. reality): true_category_* would NOT exist on real
+-- Helios AP data. They're here so the demo can train a supervised classifier
+-- against a deterministic label set. In a production engagement the customer
+-- would supply a partial manually-curated training set instead.
 -- ============================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW ${schema_gold}.fact_invoices
-COMMENT "AP invoice LINE fact. The realized-spend surface for AP ops + spend analytics + ML. Direct/Indirect from GL account; Addressable from supplier regulated flag; predicted_category LEFT-joined from silver.invoice_classification (NULL until batch inference runs)."
+COMMENT "AP invoice LINE fact. Realized-spend surface + ML training payload. true_category_* are demo-only ground truth; in production these come from a manually-curated training set, not source-system data."
 AS
 WITH base AS (
   SELECT
@@ -57,7 +60,8 @@ WITH base AS (
     inv.code_combination_id,
     inv.segment_code,
     inv.currency,
-    inv.true_spend_category
+    inv.true_category_primary,
+    inv.true_category_secondary
   FROM ${schema_silver}.invoice_ap inv
 )
 SELECT
@@ -96,18 +100,21 @@ SELECT
   coa.segment3_natural_account              AS gl_account,
   coa.natural_account_type                  AS gl_account_type,
 
-  -- Rule-based classifications
+  -- Rule-based classifications (deterministic from GL account + supplier flag)
   CASE WHEN coa.natural_account_type = 'COGS' THEN 'Direct' ELSE 'Indirect' END
                                             AS direct_indirect,
   CASE WHEN COALESCE(s.is_regulated_supplier, FALSE) THEN 'Non-Addressable' ELSE 'Addressable' END
                                             AS addressability,
 
-  -- Supervised label (always present — generator stamps true category)
-  b.true_spend_category,
+  -- Supervised labels (2-tier) — demo-only ground truth
+  b.true_category_primary,
+  b.true_category_secondary,
 
   -- ML predictions (LEFT JOIN — NULL when batch inference hasn't run)
-  c.predicted_category,
-  c.classification_confidence,
+  c.predicted_primary_category,
+  c.predicted_secondary_category,
+  c.primary_confidence,
+  c.secondary_confidence,
   c.model_version,
   c.scored_at
 FROM base b

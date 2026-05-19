@@ -15,13 +15,14 @@
 
 ---
 
-## Three explicit user requirements
+## Two explicit user requirements
 
-1. **Data realism via reference-filing anchoring.** Use a public industrial conglomerate's 10-K + 10-Q as a numerical anchor; **fully anonymize** company name/segments/geographies; scale numbers ~1/10 so the demo company reads as a mid-cap industrial conglomerate.
-2. **Future 10-Q ingestion.** When a new 10-Q drops, the user should be able to upload the HTML and have new quarter records generated that reconcile to the filing.
-3. **Three source-system shapes.** Raw bronze data must look like it came from SAP Ariba (procurement), Oracle Fusion Cloud (accounting), and a custom in-house contract management system (CMS).
+1. **Data realism via reference-filing anchoring.** Use a public industrial conglomerate's 10-K + 10-Q as a numerical anchor; **fully anonymize** company name/segments/geographies; scale numbers ~1/10 so the demo company reads as a mid-cap industrial conglomerate. Anchors are hand-curated rows in `01_period_anchors_seed.py` — adding a quarter is a code edit, not an ingestion workflow.
+2. **Three source-system shapes.** Raw bronze data must look like it came from SAP Ariba (procurement), Oracle Fusion Cloud (accounting), and a custom in-house contract management system (CMS).
 
 **Source filings:** kept out of version control. Store the URLs / saved HTML out-of-tree (e.g., a private notes doc) to avoid pinning the demo to a specific named issuer.
+
+> Earlier iterations of this design included a third requirement — "future 10-Q ingestion via AI extraction" — which produced an `ingest_10q` job that ran `ai_extract`, a human-review notebook, and a quarter-scoped regenerator. That was removed in favor of direct hand-coding of anchor rows; the indirection added complexity without changing what gets demoed. If a customer wants to see AI extraction over filings, that's a better fit for a dedicated `ai_query` demo.
 
 ---
 
@@ -30,7 +31,7 @@
 | Decision area | Chosen option |
 |---|---|
 | Anonymized company + segments | **Helios Industrial Group (HIG)** with segments HAD / HPA / HSB / HET |
-| 10-Q ingestion workflow | **Hybrid: AI-extract draft + human review + commit** |
+| Anchor seeding | **Hand-curated rows in `01_period_anchors_seed.py`** (originally hybrid AI extract + human review; simplified later) |
 | Geographies | **NA / EMEA / APAC / LATAM** (rename, not retained verbatim) |
 | Catalog/schema layout | **`finance_demo.{raw_data, bronze_ariba, bronze_fusion, bronze_cms, silver, gold, _meta, ml}`** (expanded from 6 → 8 schemas during scaffold; see §10) |
 
@@ -73,16 +74,9 @@ Single source of truth for "what does Helios's books look like in period X." All
 - **Headcount:** `headcount_total` (CONSOL + per-segment when disclosed)
 - **Provenance:** `source_filing_type` (`10-K`|`10-Q`), `source_filing_url`, `source_extracted_at`, `human_reviewed_by`, `human_reviewed_at`, `confidence_score`, `notes`
 
-**Initial seeding:** hand-curated rows for FY2023, FY2024, plus each available quarterly period from the most recent 10-Q, with 1/10 scaling and Helios-segment naming applied at load time.
+**Seeding:** all rows are hand-curated in `data/generators/01_period_anchors_seed.py:CONSOL_PERIODS`. Currently covers FY2023, FY2024, Q1–Q4 2025 + FY2025 consolidated, and Q1 2026 — enough horizon for the demo without requiring ongoing 10-Q ingestion. To extend, add another tuple and re-run the data-generation job.
 
-### 10-Q ingestion workflow (hybrid AI + human-review)
-
-1. **Drop:** user uploads new 10-Q HTML to `/Volumes/finance_demo/raw_data/files/filings/raw/10q_<period>.html`.
-2. **Extract:** an *extractor notebook* runs `ai_extract` / `AI_QUERY` over the HTML using Claude with a strict JSON schema matching the anchor columns. Writes a draft row (per segment + CONSOL) to `_meta.dim_period_anchors_draft` with a `confidence_score`.
-3. **Review:** a *review notebook* diffs draft vs. prior quarter (QoQ deltas, segment-to-CONSOL tie-out, sign checks, scaling-applied check). User stamps `human_reviewed_by` and merges into `_meta.dim_period_anchors`.
-4. **Regenerate:** a *regenerate_quarter* notebook detects the new accepted anchor row(s), re-runs the source-system generators for that quarter only, and re-publishes the affected silver/gold partitions.
-
-This workflow itself is demoable (AI extraction + human-in-the-loop) for the Wave 1 narrative.
+The `source_filing_type` / `source_filing_url` / `human_reviewed_by` provenance columns are retained on the table because they're realistic governance fields a real finance team would want — but they're populated at hand-seeding time, not from an AI pipeline.
 
 ---
 
@@ -95,8 +89,7 @@ Volume layout:
 /Volumes/finance_demo/raw_data/files/
 ├── sap_ariba/        CSV exports
 ├── oracle_fusion/    CSV + Parquet
-├── inhouse_cms/      line-delimited JSON
-└── filings/raw/      10-Q HTML for anchor extraction
+└── inhouse_cms/      line-delimited JSON
 ```
 
 ### `bronze_ariba` — SAP Ariba procurement (CSV exports)
@@ -220,10 +213,9 @@ End-to-end smoke test:
 
 1. **Anchor load:** `_meta.dim_period_anchors` contains seeded rows for FY2023, FY2024, and Q1'25 → latest Q.
 2. **Source-shape sanity:** browse `bronze_ariba` / `bronze_fusion` / `bronze_cms` in catalog explorer; names read as SAP / Oracle / in-house.
-3. **Volume layout:** `/Volumes/finance_demo/raw_data/files/sap_ariba/EKKO_PO_HEADER/<load_date>/` exists with CSVs; analogous `/oracle_fusion/` (Parquet/CSV), `/inhouse_cms/` (JSON), and `/filings/raw/` for 10-Q HTML.
+3. **Volume layout:** `/Volumes/finance_demo/raw_data/files/sap_ariba/` contains CSVs; analogous `/oracle_fusion/` (Parquet/CSV) and `/inhouse_cms/` (JSON).
 4. **Reconciliation gate:** build job runs; tie-out notebook passes — for each (FY, Q, segment) with an anchor row, gold facts land within ±2%.
-5. **10-Q replay:** drop a "next quarter" HTML, run extractor → review → regenerate; gold facts grow by exactly one quarter and tie out.
-6. **Anonymization check:** grep all generated content and committed artifacts for the source filer's name or original segment names (kept out of version control intentionally). The reference filings' literal `US / Europe / Other International` geographic phrasing is also banned in generated content; country fields in supplier addresses can stay realistic.
+5. **Anonymization check:** grep all generated content and committed artifacts for the source filer's name or original segment names (kept out of version control intentionally). The reference filings' literal `US / Europe / Other International` geographic phrasing is also banned in generated content; country fields in supplier addresses can stay realistic.
 
 ---
 
@@ -233,7 +225,7 @@ End-to-end smoke test:
 - `~/Dev/fin_demo/databricks.yml` — reference bundle structure (evolve from)
 - `~/Dev/fin_demo/TASKS.md` — reference for macro-environment AR(1) pattern & deterministic seeds
 - `~/Dev/fin_demo/00.Data Generation/00a_generate_macro_environment.ipynb` — reference macro factor generation
-- Source filings (10-K + 10-Q): kept out of tree — store URLs/HTML in a private notes doc
+- Source filings (10-K + 10-Q): kept out of tree — store URLs in a private notes doc
 - Design doc: <https://docs.google.com/document/d/1NbkfiV-4dVe4xOr0uiBCGJ5NvYKtxS5xTEBwtuXR5ug/edit>
 - Approved plan: `~/.claude/plans/check-out-this-design-compiled-pond.md`
 
@@ -257,7 +249,6 @@ Implementation order:
 6. Silver SQL — conformed canonical entities.
 7. Gold SQL — facts + dims with Phase 2 hooks reserved.
 8. Gold-vs-anchor validator (`99_validate_gold_vs_anchors.py`) — final tie-out after pipeline runs.
-9. 10-Q ingestion notebooks (`data/ml/extract_10q.py`, `review_anchor_draft.py`, `regenerate_quarter.py`).
 
 ## 10. Reconciliations vs. original architecture (made during scaffold)
 
@@ -266,11 +257,11 @@ The `dbx-bundle-medallion-project` skill prescribed a few conventions that trian
 | Change | Reason |
 |---|---|
 | Added `raw_data` schema with a single managed volume `files/` | Skill convention — keep all raw files in one volume keyed by `<source>/` subdir; bronze schemas read from there. Cleaner than per-bronze-schema volumes. |
-| Volume path changed from `/Volumes/finance_demo/<bronze>/raw/...` to `/Volumes/finance_demo/raw_data/files/<source>/...` | Follows from above. 10-Q HTML now lives at `raw_data/files/filings/raw/`. |
+| Volume path changed from `/Volumes/finance_demo/<bronze>/raw/...` to `/Volumes/finance_demo/raw_data/files/<source>/...` | Follows from above. |
 | Added `ml` schema | Skill convention — explicit home for Phase 2 ML feature tables + registered models. |
 | One Lakeflow pipeline (`lakehouse`) instead of multiple per-domain pipelines | Skill convention. Old `fin_demo` had 8 per-domain DLT pipelines; new design uses one pipeline with explicit library list. Easy to split later if needed. |
 | SQL-first transformation language (was Python in `fin_demo`) | dbdemos Gold-tier requirement ("Prefer SQL over Python") + skill convention. |
 | Pipeline default schema = `silver`; bronze + gold qualified explicitly in SQL | Single pipeline writes to many schemas; default schema is for the most-used layer. |
 | Targets: `dev` (default, `aws-e2-demo-field-eng` profile) + `prod` (`e2-demo-west` host) | Carried forward from old `fin_demo`. Skill suggests prod-only but explicitly allows dev for active iteration. |
 
-The architecture in §1–§8 is otherwise unchanged. Schema count went from 6 → 8 (added `raw_data` and `ml`), and the volume location for 10-Q HTML moved one level.
+The architecture in §1–§8 is otherwise unchanged. Schema count went from 6 → 8 (added `raw_data` and `ml`).

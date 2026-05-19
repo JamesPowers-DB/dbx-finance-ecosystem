@@ -51,7 +51,14 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema_ml}`")
 # MAGIC - **Categorical**: `supplier_id`, `segment_code`, `payment_terms`, `currency`, `supplier_region`, `gl_account`, `direct_indirect`, `addressability`, `category_primary_hint`
 # MAGIC - **Numeric (log-transformed)**: `log_amount`, `log_quantity`, `log_unit_price`
 # MAGIC - **Derived**: `supplier_maverick_propensity`, `is_maverick_supplier`
-# MAGIC - **Label**: `label` ← `true_spend_category`
+# MAGIC - **Labels (2-tier)**:
+# MAGIC   - `label`         ← `true_category_secondary` (leaf — 30 classes; the primary training target)
+# MAGIC   - `label_primary` ← `true_category_primary`   (parent — 8 classes; surfaced for parent-tier eval)
+# MAGIC
+# MAGIC The model trains on the leaf label. At inference time the primary tier is
+# MAGIC derived from the leaf via `dim_spend_category` — see `batch_inference.py`.
+# MAGIC `label_primary` is carried through the features tables so `evaluate.py` can
+# MAGIC split parent-tier vs. child-tier accuracy without re-joining the dim.
 
 # COMMAND ----------
 features = spark.sql(f"""
@@ -73,18 +80,34 @@ features = spark.sql(f"""
     LN(1 + GREATEST(CAST(fi.unit_price AS DOUBLE), 0.0)) AS log_unit_price,
     COALESCE(CAST(fi.supplier_maverick_propensity AS DOUBLE), 0.0) AS supplier_maverick_propensity,
     ds.category_primary                            AS category_primary_hint,
-    fi.true_spend_category                         AS label,
+    fi.true_category_secondary                     AS label,
+    fi.true_category_primary                       AS label_primary,
     CASE
       WHEN COALESCE(CAST(fi.supplier_maverick_propensity AS DOUBLE), 0.0) > {maverick_threshold} THEN TRUE
       ELSE FALSE
     END AS is_maverick_supplier
   FROM `{catalog}`.`{schema_gold}`.fact_invoices fi
   LEFT JOIN `{catalog}`.`{schema_gold}`.dim_supplier ds USING (supplier_id)
-  WHERE fi.true_spend_category IS NOT NULL
+  WHERE fi.true_category_secondary IS NOT NULL
 """)
 
 total_rows = features.count()
 print(f"Projected {total_rows:,} feature rows from fact_invoices")
+assert total_rows > 0, (
+    f"No rows projected from {catalog}.{schema_gold}.fact_invoices — check that the "
+    "lakehouse pipeline has run and `true_category_secondary` is populated."
+)
+
+print("\nFeature schema (one row shown):")
+features.printSchema()
+
+print("\nLeaf label distribution (`label`) — top 5 + bottom 5 (pre-split):")
+label_counts = features.groupBy("label").count().orderBy(F.col("count").desc())
+label_counts.limit(5).show(truncate=False)
+label_counts.orderBy("count").limit(5).show(truncate=False)
+
+print("\nParent label distribution (`label_primary`) — all parents:")
+features.groupBy("label_primary").count().orderBy(F.col("count").desc()).show(truncate=False)
 
 # COMMAND ----------
 # MAGIC %md ## Split — maverick first, then stratified 80/20 on the remainder

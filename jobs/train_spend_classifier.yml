@@ -9,13 +9,12 @@ resources:
           prepare_features ──┬──▶ train_baseline ───────┐
                              └──▶ train_embedding ─────┴──▶ evaluate ──▶ batch_inference ──▶ sourcing_strategy_view
 
-        Inputs: gold.fact_spend (populated by the build_lakehouse job).
+        Inputs: gold.fact_invoices (populated by the build_lakehouse pipeline).
         Outputs:
           - <catalog>.ml.{spend_clf_train, spend_clf_holdout, spend_clf_maverick_holdout}
           - <catalog>.ml.spend_classifier (UC-registered model with @challenger / @challenger_embedding / @production aliases)
           - <catalog>.ml.spend_clf_eval_runs (eval history)
-          - <catalog>.ml.spend_clf_predictions (audit trail of every scored row)
-          - <catalog>.gold.fact_spend (predictions MERGEd into unspsc_family_code / classification_confidence / managed_spend_flag)
+          - <catalog>.ml.invoice_classifications (predictions MERGEd in by invoice_line_id; gold.fact_invoices LEFT-joins through silver.invoice_classification)
           - <catalog>.gold.vw_sourcing_strategy (sourcing-org analytics view)
 
         Run this after `build_lakehouse` has populated gold. See `ml/README.md`
@@ -97,7 +96,6 @@ resources:
               schema_ml: ${var.schema_ml}
               model_name: spend_classifier
               model_alias: production
-              confidence_threshold_managed: "0.75"
 
         - task_key: sourcing_strategy_view
           environment_key: ml_train

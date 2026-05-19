@@ -23,7 +23,7 @@ FROM STREAM read_files(
 );
 
 CREATE OR REFRESH STREAMING TABLE ${schema_bronze_fusion}.po_lines_all
-COMMENT "Oracle Fusion PO lines (per-quarter parquet). Inherits item_description, quantity, unit_price from upstream PR with light negotiation (0.95-1.02× PR estimate). Carries _segment_code and _true_spend_category for downstream silver/gold + ML label propagation."
+COMMENT "Oracle Fusion PO lines (per-quarter parquet). Inherits item_description, quantity, unit_price from upstream PR with light negotiation (0.95-1.02× PR estimate). Carries _segment_code and the 2-tier _true_category_primary + _true_category_secondary labels for downstream silver/gold + ML label propagation."
 AS SELECT
   *,
   _metadata.file_path AS _source_file,

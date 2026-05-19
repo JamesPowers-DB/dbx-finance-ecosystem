@@ -240,6 +240,58 @@ if total_creation_cr > 0:
     print(f"AP balance drift from open-invoice total: {drift_pct:+.2f}%")
 
 # COMMAND ----------
+# MAGIC %md ## (6) Spend-taxonomy parity (strict)
+# MAGIC
+# MAGIC Every `(_true_category_primary, _true_category_secondary)` pair on every raw
+# MAGIC PR / PO / invoice-line file must be a valid leaf in `_lib.SPEND_CATEGORY_HIERARCHY`.
+# MAGIC `dim_spend_category.sql` mirrors this hierarchy — if this gate passes and the SQL
+# MAGIC mirror is in sync, downstream silver/gold automatically holds.
+
+# COMMAND ----------
+print("=== Spend taxonomy parity ===")
+valid_pairs = {(parent, child) for parent, children in PARENT_TO_CHILDREN.items() for child in children}
+print(f"  Hierarchy has {len(valid_pairs)} valid (primary, secondary) pairs across {len(PARENT_TO_CHILDREN)} parents")
+
+def assert_pairs(df: pl.DataFrame, source_label: str):
+    observed = {(r["_true_category_primary"], r["_true_category_secondary"])
+                for r in df.iter_rows(named=True)
+                if r["_true_category_secondary"] is not None}
+    illegal = observed - valid_pairs
+    if illegal:
+        n = sum(1 for r in df.iter_rows(named=True)
+                if (r["_true_category_primary"], r["_true_category_secondary"]) in illegal)
+        breaches.append(
+            f"Taxonomy {source_label}: {len(illegal)} invalid (primary, secondary) pair(s) on {n} row(s): "
+            f"{sorted(illegal)[:5]}{'...' if len(illegal) > 5 else ''}"
+        )
+        print(f"  FAIL {source_label}: {len(illegal)} invalid pair(s)")
+    else:
+        print(f"  OK   {source_label}: {len(observed)} distinct pair(s), all in hierarchy")
+
+
+for (fy, fq) in periods:
+    label = f"{fy}Q{fq}"
+    pr_line_f = f"{ARIBA}/EBAN_PR_LINE_{label}.csv"
+    po_line_f = f"{FUSION}/po_lines_all_{label}.parquet"
+    inv_line_f = f"{FUSION}/ap_invoice_lines_all_{label}.parquet"
+
+    if os.path.exists(pr_line_f):
+        assert_pairs(
+            pl.read_csv(pr_line_f).select(["_true_category_primary", "_true_category_secondary"]),
+            f"PR lines {label}",
+        )
+    if os.path.exists(po_line_f):
+        assert_pairs(
+            pl.read_parquet(po_line_f).select(["_true_category_primary", "_true_category_secondary"]),
+            f"PO lines {label}",
+        )
+    if os.path.exists(inv_line_f):
+        assert_pairs(
+            pl.read_parquet(inv_line_f).select(["_true_category_primary", "_true_category_secondary"]),
+            f"Invoice lines {label}",
+        )
+
+# COMMAND ----------
 # MAGIC %md ## Result
 
 # COMMAND ----------

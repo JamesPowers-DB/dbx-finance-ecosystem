@@ -5,8 +5,7 @@ resources:
       description: >
         Run the Lakeflow pipeline that materializes bronze → silver → gold
         from files in /Volumes/${var.catalog}/raw_data/files/. Run this after
-        finance-demo-generate-data has produced fresh source files (or after
-        finance-demo-ingest-10q has regenerated a specific quarter).
+        finance-demo-generate-data has produced fresh source files.
       max_concurrent_runs: 1
       email_notifications: {}
       environments:

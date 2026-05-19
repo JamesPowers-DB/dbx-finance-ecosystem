@@ -24,7 +24,7 @@ FROM STREAM read_files(
 );
 
 CREATE OR REFRESH STREAMING TABLE ${schema_bronze_ariba}.EBAN_PR_LINE
-COMMENT "SAP Purchase Requisition line (EBAN). Carries the line description TXZ01, estimated PREIS, and _true_spend_category (the ML label that propagates PR → PO → invoice)."
+COMMENT "SAP Purchase Requisition line (EBAN). Carries the line description TXZ01, estimated PREIS, and the 2-tier _true_category_primary + _true_category_secondary labels (propagate PR → PO → invoice for ML)."
 AS SELECT
   *,
   _metadata.file_path AS _source_file,

@@ -7,7 +7,7 @@
 -- ============================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW ${schema_silver}.purchase_order
-COMMENT "PO lines from Fusion po_headers_all + po_lines_all. source_pr_number FKs to silver.purchase_request.pr_number for the Ariba bridge. true_spend_category propagates through from the upstream PR."
+COMMENT "PO lines from Fusion po_headers_all + po_lines_all. source_pr_number FKs to silver.purchase_request.pr_number for the Ariba bridge. 2-tier true_category_* labels propagate through from the upstream PR."
 AS
 SELECT
   'oracle_fusion'                                                   AS source_system,
@@ -36,6 +36,7 @@ SELECT
   l.currency_code                                                   AS currency,
   l.source_pr_number_ext                                            AS source_pr_number,
   CAST(l.source_pr_line_num_ext AS INT)                             AS source_pr_line_num,
-  l._true_spend_category                                            AS true_spend_category
+  l._true_category_primary                                          AS true_category_primary,
+  l._true_category_secondary                                        AS true_category_secondary
 FROM ${schema_bronze_fusion}.po_lines_all l
 JOIN ${schema_bronze_fusion}.po_headers_all h USING (po_header_id);

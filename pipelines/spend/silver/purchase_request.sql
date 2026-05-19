@@ -39,7 +39,8 @@ SELECT
   CAST(l.PREIS AS DECIMAL(18, 2))                                   AS estimated_unit_price,
   CAST(l.PEINH AS INT)                                              AS price_unit,
   l.WAERS                                                           AS currency,
-  l._true_spend_category                                            AS true_spend_category,
+  l._true_category_primary                                          AS true_category_primary,
+  l._true_category_secondary                                        AS true_category_secondary,
   YEAR(h.ERDAT)                                                     AS fiscal_year,
   QUARTER(h.ERDAT)                                                  AS fiscal_quarter
 FROM ${schema_bronze_ariba}.EBAN_PR_LINE l

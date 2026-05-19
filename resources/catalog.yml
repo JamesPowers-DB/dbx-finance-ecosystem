@@ -14,8 +14,7 @@ resources:
       name: ${var.schema_raw}
       comment: >
         Raw landing zone. Single managed volume holds files from all sources —
-        sap_ariba/ (CSV), oracle_fusion/ (CSV+Parquet), inhouse_cms/ (JSON),
-        and filings/ (10-Q HTML for anchor extraction).
+        sap_ariba/ (CSV), oracle_fusion/ (CSV+Parquet), inhouse_cms/ (JSON).
 
     bronze_ariba:
       catalog_name: ${var.catalog}
@@ -66,8 +65,7 @@ resources:
       comment: >
         Anchor tables and governance. dim_period_anchors is the single source
         of truth for per-period financial targets that downstream generators
-        reconcile against. dim_period_anchors_draft holds AI-extracted rows
-        pending human review.
+        reconcile against.
 
     ml:
       catalog_name: ${var.catalog}
@@ -83,5 +81,5 @@ resources:
       name: ${var.raw_volume}
       volume_type: MANAGED
       comment: >
-        Landing zone. Subdirectories — sap_ariba/, oracle_fusion/, inhouse_cms/,
-        filings/raw/. Generators write here; bronze pipelines read from here.
+        Landing zone. Subdirectories — sap_ariba/, oracle_fusion/, inhouse_cms/.
+        Generators write here; bronze pipelines read from here.

@@ -388,7 +388,10 @@ def generate_quarter(fy: int, fq: int):
                         "PEINH": peinh,
                         "_estimated_net_amount": preis,
                         "WAERS": "USD" if rng_pr.random() < 0.72 else ("EUR" if rng_pr.random() < 0.5 else "GBP"),
-                        "_true_spend_category": cat_code,
+                        # Demo-only ground truth — wouldn't exist on real Ariba PR exports.
+                        # _true_category_secondary is the 30-leaf code; _true_category_primary is its parent.
+                        "_true_category_primary": cat["parent"],
+                        "_true_category_secondary": cat_code,
                         "_segment_code": seg,
                         "_month": m,
                         "_year": fy,
@@ -415,7 +418,7 @@ def generate_quarter(fy: int, fq: int):
     pr_line_df = pl.DataFrame(pr_lines).select([
         "BANFN", "BNFPO", "MATNR", "MATGROUP", "TXZ01",
         "MENGE", "MEINS", "PREIS", "PEINH", "WAERS",
-        "_supplier_intended", "_true_spend_category",
+        "_supplier_intended", "_true_category_primary", "_true_category_secondary",
     ])
     write_csv(pr_header_df, f"{OUT}/EBAN_PR_HEADER_{quarter_label}.csv")
     write_csv(pr_line_df,   f"{OUT}/EBAN_PR_LINE_{quarter_label}.csv")

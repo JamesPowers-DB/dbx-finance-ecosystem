@@ -240,10 +240,117 @@ SPEND_CATEGORIES: List[Dict] = [
 ]
 assert len(SPEND_CATEGORIES) == 30, f"expected 30 categories, got {len(SPEND_CATEGORIES)}"
 
+
+# COMMAND ----------
+# MAGIC %md ## 2-tier hierarchy — parent (primary) × child (secondary)
+# MAGIC
+# MAGIC Sourcing organizations roll up to the parent tier first ("how much are we
+# MAGIC spending on Professional Services as a whole?") and only drill into
+# MAGIC sub-categories for negotiation. The 30 leaf codes group into 8 parents.
+# MAGIC
+# MAGIC **This is the source of truth.** `pipelines/reference/gold/dim_spend_category.sql`
+# MAGIC mirrors this taxonomy as a UC reference table — the reconcile step asserts
+# MAGIC the two stay in sync.
+
+# COMMAND ----------
+SPEND_CATEGORY_HIERARCHY: Dict[str, Dict] = {
+    "Direct_Materials_Components": {
+        "name": "Direct Materials & Components",
+        "children": [
+            "Aerospace_Components", "Hydraulic_Systems", "Composite_Materials",
+            "Industrial_Sensors", "Control_Systems",
+            "HVAC_Equipment", "Building_Controls", "Security_Systems", "Fire_Suppression",
+            "Solar_Components", "Battery_Materials", "Power_Electronics",
+        ],
+    },
+    "Raw_Materials": {
+        "name": "Raw Materials",
+        "children": ["Raw_Materials_Metals", "Raw_Materials_Polymers"],
+    },
+    "MRO_Field_Services": {
+        "name": "MRO & Field Services",
+        "children": ["MRO_Services_Aero", "Calibration_Services"],
+    },
+    "Software_Cloud": {
+        "name": "Software & Cloud",
+        "children": ["Process_Software", "Monitoring_Software", "Cloud_Infrastructure"],
+    },
+    "IT_Telecom": {
+        "name": "IT & Telecom",
+        "children": ["IT_Services", "Telecommunications"],
+    },
+    "Professional_Services": {
+        "name": "Professional Services",
+        "children": [
+            "Professional_Services_Legal", "Professional_Services_Audit",
+            "Professional_Services_Consulting",
+        ],
+    },
+    "Facilities_GA": {
+        "name": "Facilities & G&A",
+        "children": ["Office_Supplies", "Facilities", "Travel", "Marketing", "Training"],
+    },
+    "Logistics": {
+        "name": "Logistics",
+        "children": ["Logistics_Freight"],
+    },
+}
+
+PARENT_CATEGORY_CODES: List[str] = list(SPEND_CATEGORY_HIERARCHY.keys())
+PARENT_CODE_TO_NAME: Dict[str, str] = {
+    code: info["name"] for code, info in SPEND_CATEGORY_HIERARCHY.items()
+}
+CHILD_TO_PARENT: Dict[str, str] = {
+    child: parent
+    for parent, info in SPEND_CATEGORY_HIERARCHY.items()
+    for child in info["children"]
+}
+PARENT_TO_CHILDREN: Dict[str, List[str]] = {
+    parent: list(info["children"]) for parent, info in SPEND_CATEGORY_HIERARCHY.items()
+}
+
+# Sanity: hierarchy and SPEND_CATEGORIES must agree on the leaf set.
+_hierarchy_leaves = [c for info in SPEND_CATEGORY_HIERARCHY.values() for c in info["children"]]
+assert len(_hierarchy_leaves) == len(set(_hierarchy_leaves)), "duplicate child code in hierarchy"
+_categories_leaves = {c["code"] for c in SPEND_CATEGORIES}
+assert set(_hierarchy_leaves) == _categories_leaves, (
+    "SPEND_CATEGORY_HIERARCHY children do not match SPEND_CATEGORIES codes:\n"
+    f"  in hierarchy but not categories: {set(_hierarchy_leaves) - _categories_leaves}\n"
+    f"  in categories but not hierarchy: {_categories_leaves - set(_hierarchy_leaves)}"
+)
+
+# Inject parent field onto each SPEND_CATEGORIES item so generators can pick it up
+# with a single SPEND_CAT_BY_CODE[child]["parent"] lookup.
+for _cat in SPEND_CATEGORIES:
+    _cat["parent"] = CHILD_TO_PARENT[_cat["code"]]
+
+
 SPEND_CAT_BY_CODE = {c["code"]: c for c in SPEND_CATEGORIES}
 SPEND_CATEGORY_CODES = [c["code"] for c in SPEND_CATEGORIES]
 MATGROUP_NOISE_RATE = 0.08
 MAVERICK_SPEND_RATE = 0.06
+
+# Realistic category-recording noise on AP invoice lines.
+#
+# In real GL/AP systems ~5-15% of purchases get the wrong category coded at
+# invoice-entry time — category managers tag inconsistently, or a clerk picks
+# the closest-looking option from a dropdown. We model that here:
+#
+#   - The line's content (vocabulary, GL account, supplier) stays consistent
+#     with the ACTUAL category — the buyer knew what they bought.
+#   - The RECORDED `_true_category_secondary` is swapped (with probability
+#     LABEL_NOISE_RATE) to a sibling leaf under the same parent. The recorded
+#     primary stays unchanged — mis-tagging happens within a parent
+#     (Legal ↔ Audit ↔ Consulting), not across (Legal ↔ Aerospace_Components).
+#
+# This caps the ML model's leaf-tier accuracy at ~(100 - 8) = 92% on the
+# recorded label, which is the demo-realistic ceiling. Parent-tier accuracy
+# stays close to 100% because noise is intra-parent.
+#
+# Noise is applied ONLY at invoice-line stamp time in 03_fusion_files.py —
+# PR and PO lines carry the clean actual category. This matches real-world
+# behavior: procurement intent is clean; GL recording is where mistakes happen.
+LABEL_NOISE_RATE = 0.08
 
 # Shared TXZ01 description templates. Each pattern uses any subset of
 # {adj}, {noun}, {part_no}, {model_series}, {qty} — all are passed in.

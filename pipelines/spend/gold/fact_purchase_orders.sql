@@ -40,7 +40,9 @@ SELECT
   po.currency,
   po.source_pr_number,
   po.source_pr_line_num,
-  po.true_spend_category
+  -- Demo-only ground truth (2-tier). See note on fact_invoices for label-sourcing context.
+  po.true_category_primary,
+  po.true_category_secondary
 FROM ${schema_silver}.purchase_order po
 LEFT JOIN ${schema_gold}.dim_supplier s
   ON po.supplier_id = s.supplier_id;

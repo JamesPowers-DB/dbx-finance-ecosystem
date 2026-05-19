@@ -18,8 +18,15 @@
 - ✅ ML inference table pattern wired: `ml.invoice_classifications` initialized empty by data-gen seed; `silver.invoice_classification` reads it; `gold.fact_invoices` LEFT-joins → predictions are NULL until batch inference runs.
 - ✅ ML notebooks re-pointed to `gold.fact_invoices` (prepare_features, batch_inference, train_baseline, evaluate, sourcing_strategy_view).
 
+**Spend classifier (ML core) is now end-to-end:**
+- ✅ `prepare_features.py` writes 3 training tables from `gold.fact_invoices`
+- ✅ `train_baseline.py` trains TF-IDF + LightGBM, wraps in a taxonomy-aware pyfunc, registers to UC at `<catalog>.ml.spend_classifier@challenger`
+- ✅ `evaluate.py` compares aliases + GL baseline on both holdouts at both taxonomy tiers; appends to `spend_clf_eval_runs`; promotes winner to `@production`
+- ✅ `batch_inference.py` scores `fact_invoices` via `spark_udf` and MERGEs into `ml.invoice_classifications`
+- ✅ 8% intra-parent label recording noise on invoice lines (`_lib.LABEL_NOISE_RATE`) — caps leaf accuracy ~92%, leaves parent accuracy near 100%. Applied only at invoice-stamp time in `03_fusion_files.py` (PRs/POs stay clean).
+
 **Next immediate step:**
-**Deploy the Phase B redesign and run the lakehouse pipeline** to confirm the new fact tables populate. Then resume ML model implementation (feature prep + baseline training) against `gold.fact_invoices`.
+Re-run the full `train_spend_classifier` DAG end-to-end on `dev` to land the first `@production` model and populate predictions on `fact_invoices`. Then resume the consumption surfaces (sourcing-strategy view + dashboards).
 
 ---
 
@@ -49,12 +56,6 @@
   UNION ALL SELECT 'Invoice', COUNT(*) FROM horizontal_finance_dev.gold.fact_invoices;
   ```
 - [ ] Implement `ml/notebooks/99_validate_gold_vs_anchors.py` (currently stub) — assert gold totals tie back to `_meta.dim_period_anchors` ±2%. Wired as final task in `build_lakehouse.yml` but currently a no-op.
-
-### 10-Q ingestion notebooks (still stubs)
-- [ ] `data/ml/extract_10q.py` — `ai_extract` over filing HTML → draft anchor row.
-- [ ] `data/ml/review_anchor_draft.py` — human-in-the-loop diff + MERGE.
-- [ ] `data/ml/regenerate_quarter.py` — quarter-scoped generator re-run.
-- [ ] 10-Q replay smoke test (synthetic HTML drop → ingest_10q → quarter added → build_lakehouse → validator passes).
 
 ### Smoke tests
 - [ ] Anonymization audit: grep all UC table contents (not just code) for source filer name / original segment names.
@@ -105,34 +106,32 @@
 >
 > Training data: `gold.fact_invoices.true_spend_category` is the supervised label; features include `line_description`, `supplier_*`, `amount`/`quantity`/`unit_price`, `gl_account`, `direct_indirect`, `addressability`. Inference writes to `ml.invoice_classifications`; `gold.fact_invoices` LEFT-joins predictions through `silver.invoice_classification`.
 
-### Step 1 — Feature engineering
-- [ ] `ml/spend_classification/prepare_features.py` — pulls features from `gold.fact_invoices` joined with `dim_supplier`, splits train/holdout (80/20 stratified by category, plus a separate **maverick slice** where `supplier_maverick_propensity > 0.15`). Writes:
-  - `<catalog>.ml.spend_clf_train` — features + label
-  - `<catalog>.ml.spend_clf_holdout` — holdout
-  - `<catalog>.ml.spend_clf_maverick_holdout` — hard-case eval slice
-- [ ] Feature set:
-  - **Text**: `line_description`
-  - **Categorical**: `supplier_id`, `segment_code`, `payment_terms`, `currency`, `supplier_region`, `gl_account`, `direct_indirect`, `addressability`, `category_primary_hint`
-  - **Numeric**: `amount` / `quantity` / `unit_price` (log-scaled)
-  - **Derived**: `is_maverick_supplier` (= supplier_maverick_propensity > 0.15)
+### Step 1 — Feature engineering  ✅ DONE
+- [x] `ml/spend_classification/prepare_features.py` — pulls features from `gold.fact_invoices` joined with `dim_supplier`, splits train/holdout (80/20 stratified by leaf category, plus a separate **maverick slice** where `supplier_maverick_propensity > 0.15`). Writes:
+  - `<catalog>.ml.spend_clf_train`              — features + 2-tier labels
+  - `<catalog>.ml.spend_clf_holdout`            — holdout
+  - `<catalog>.ml.spend_clf_maverick_holdout`   — hard-case eval slice
+- [x] Feature set: 15 columns (text + 9 categorical + 4 numeric + maverick flag). See `ml/README.md` § 2 for the full table.
 
-### Step 2 — Baseline model
-- [ ] `ml/spend_classification/train_baseline.py` — TF-IDF (line_description) + one-hot + LightGBM multi-class classifier. Hyperparameters: 30 classes, depth ≤ 8, ~500 trees. MLflow autolog. Target: ≥85% top-1 accuracy on holdout.
-- [ ] Register the baseline model to UC: `<catalog>.ml.spend_classifier`. Tag with `stage = challenger`.
+### Step 2 — Baseline model  ✅ DONE
+- [x] `ml/spend_classification/train_baseline.py` — TF-IDF (1-2 gram, 20K features, sublinear_tf) + OneHotEncoder(min_frequency=50) + LightGBM (300 trees, depth 8, num_leaves 63, class_weight=balanced).
+- [x] Wrapped in a `SpendClassifierWithTaxonomy` pyfunc that emits all four 2-tier prediction columns natively — leaf→parent map baked into the artifact at training time.
+- [x] Registered to `<catalog>.ml.spend_classifier` via `mlflow.pyfunc.log_model(..., registered_model_name=...)`; alias `@challenger`.
 
 ### Step 3 — Foundation-model variant (optional, but a Databricks showcase)
-- [ ] `ml/notebooks/spend_classification/02_train_fmapi.py` — uses Foundation Model API (databricks-bge-large-en) to embed `line_description`, then a small classifier head on the embedding + tabular features. Compare to baseline.
+- [ ] `ml/spend_classification/train_embedding.py` — uses Foundation Model API (databricks-bge-large-en) to embed `line_description`, then a small classifier head on the embedding + tabular features. Compare to baseline as `@challenger_embedding`. STILL A STUB.
 
-### Step 4 — Evaluation
-- [ ] `ml/spend_classification/evaluate.py` — three reports:
-  1. Holdout top-1 accuracy + per-category F1 (confusion matrix).
-  2. Maverick-slice accuracy (model has to overcome the 6% noise).
-  3. Beat-GL-account baseline: how much does the model improve over predicting `gl_account → category` lookup? (COGS catch-all account 5000 covers most direct categories — beating it proves the model uses line_description / supplier signals.)
-- [ ] Promote the winning model to `stage = production` in UC.
+### Step 4 — Evaluation  ✅ DONE
+- [x] `ml/spend_classification/evaluate.py` — discovers present aliases, scores each on `holdout` + `maverick_holdout`, also scores an in-notebook `gl_account → most-common-leaf` baseline as the floor.
+- [x] Reports BOTH tiers separately: `secondary_top1_accuracy` (leaf — the model's direct task) and `primary_top1_accuracy` (parent — derived inside the pyfunc).
+- [x] Appends to `<catalog>.ml.spend_clf_eval_runs` for trend tracking.
+- [x] Promotes the winner to `@production` (highest maverick-slice leaf accuracy, ties broken by holdout). Warns if the winner's leaf-tier margin over the GL baseline is < 10 pp.
+- [x] Prints per-leaf and per-parent `sklearn.classification_report` for the winning model on the maverick slice (demo-deck material).
 
-### Step 5 — Batch inference → ml.invoice_classifications
-- [ ] `ml/spend_classification/batch_inference.py` — loads production model, scores all `fact_invoices` rows, MERGEs predictions into `<catalog>.ml.invoice_classifications` keyed by `invoice_line_id`. `gold.fact_invoices` picks them up automatically via the LEFT JOIN through `silver.invoice_classification`.
-- [ ] Wire as a new task in a `jobs/score_spend.yml` job that runs after `build_lakehouse`.
+### Step 5 — Batch inference → ml.invoice_classifications  ✅ DONE
+- [x] `ml/spend_classification/batch_inference.py` — loads `@production`, scores `gold.fact_invoices` distributed via `mlflow.pyfunc.spark_udf` with a `struct<...>` result type, MERGEs all four prediction columns into `<catalog>.ml.invoice_classifications` keyed by `invoice_line_id`.
+- [x] `gold.fact_invoices` picks predictions up automatically via the LEFT JOIN through `silver.invoice_classification`. No write into the gold fact.
+- [x] Wired into `jobs/train_spend_classifier.yml` as the `batch_inference` task downstream of `evaluate`. (No separate `score_spend.yml` job; the training DAG handles scheduling.)
 
 ### Step 6 — Model serving (optional)
 - [ ] Create UC-registered-model-backed serving endpoint for real-time classification (e.g., used by a Lakebase Supplier Master app for inline category suggestions when manually correcting supplier records).
@@ -144,35 +143,29 @@
   - Off-contract category spend (joined with `silver.contract_inbound`)
 - [ ] One Lakeview tile or a Genie space (later) on top of this view.
 
-### Future enhancement — 2-tier category hierarchy
+### 2-tier category hierarchy — ✅ DATA + PIPELINE COMPLETE (model training open)
 
-- [ ] **Model should output a 2-tier hierarchy, not a flat code.**
-  Example outputs: `Professional Services → Consulting`, `Professional Services → Workforce Augmentation`, `Professional Services → Legal`, `Professional Services → Audit`. Today the generator emits a flat 30-category code (`Professional_Services_Consulting`) and the model predicts it directly. Sourcing organizations roll up to the parent tier first ("how much are we spending on Professional Services as a whole?") and only drill into sub-categories for negotiation.
+Implemented 2026-05-17. The supervised label is now a 2-tier taxonomy: 8 parent categories × 30 leaf categories. Sourcing organizations roll up to the parent tier for executive summary ("how much do we spend on Professional Services as a whole?") and drill into the leaf for negotiation.
 
-  **⚠️ `data/generators/_lib.py` needs significant redesign — it's the source of truth.** Three structures in that file are keyed off the flat 30-code taxonomy today:
-    - `SPEND_CATEGORIES` (line ~89): the 30 flat codes with per-leaf vocabulary, price/qty distributions, segment affinity. Needs to become a hierarchy of `{parent: { child: {...leaf fields...} }}` or a flat list with explicit `parent_code` / `child_code` columns. Parents are likely ~8–10 (Professional Services, IT, Direct Materials, MRO, Travel, Facilities, Marketing, Logistics, Raw Materials, Training).
-    - `CATEGORY_TO_GL_ACCOUNT` (line ~493): keyed by the 30 flat codes today, mapping each to a GL account. Needs rekeying by the new taxonomy — probably at the child level since GL granularity is finer than parent.
-    - `DESCRIPTION_PATTERNS` (line ~253): generic templates, no change needed.
+**Done:**
+- [x] Parent taxonomy added to `_lib.SPEND_CATEGORY_HIERARCHY` (8 parents). `CHILD_TO_PARENT` / `PARENT_TO_CHILDREN` / `PARENT_CODE_TO_NAME` lookups derived.
+- [x] Materialized as `gold.dim_spend_category` via `pipelines/reference/gold/dim_spend_category.sql` (8 × 30 = 30-row VALUES clause). Wired in `resources/pipeline.yml`.
+- [x] Generators (`02_ariba_files.py`, `03_fusion_files.py`) stamp `_true_category_primary` + `_true_category_secondary` on PR / PO / invoice lines. Polars schemas updated.
+- [x] `99_reconcile.py` § 6 asserts every `(_true_category_primary, _true_category_secondary)` pair on raw files exists in `SPEND_CATEGORY_HIERARCHY` — fails the data-gen job on drift.
+- [x] `01_period_anchors_seed.py` creates `ml.invoice_classifications` with the new 4-prediction-column schema (`predicted_primary_category`, `predicted_secondary_category`, `primary_confidence`, `secondary_confidence`). Uses `CREATE OR REPLACE` so existing tables upgrade cleanly.
+- [x] Silver: `purchase_request.sql`, `purchase_order.sql`, `invoice_ap.sql`, `invoice_classification.sql` project the new columns.
+- [x] Gold: `fact_purchase_requests.sql`, `fact_purchase_orders.sql`, `fact_invoices.sql` surface both true_category_* and (where applicable) all four predicted_* columns. `fact_invoices` comment calls out the demo-only nature of the truth columns.
+- [x] ML: `prepare_features.py` writes `label` (leaf) + `label_primary` (parent) into the three training tables. `batch_inference.py` stub documents the join to `dim_spend_category` for primary-tier derivation. `evaluate.py` reports per-tier accuracy. `sourcing_strategy_view.py` separates parent-tier (exec) vs. leaf-tier (category manager) analytics.
+- [x] Docs: `ml/README.md` rewritten for 2-tier. `sql/pipeline_exploration/spend_overview.sql` updated.
 
-  Other ripple effects:
-  - **Generator changes**: `EBAN_PR_LINE._true_spend_category` (and its propagation through PO + invoice lines) becomes two columns (`_true_category_parent`, `_true_category_child`) or stays as a single dotted string (`Professional Services → Consulting`).
-  - **Model output shape**: hierarchical softmax (parent head + child head with parent-conditioning) is cleaner than independent two-headed classification, but a single flat classifier on `(parent, child)` pairs is the simplest first cut.
-  - **Eval slices**: split top-1 accuracy into parent-correct (easier) vs. child-correct (harder); the maverick slice is more interesting at the child tier.
-  - **Sourcing strategy view**: roll up to parent for executive summary, drill to child for procurement negotiation.
-  - **Maps cleanly to UNSPSC's `Segment → Family` two-level structure** — see the related open question below.
+**Open (model training itself):**
+- [ ] Train the baseline classifier (`train_baseline.py`). Model still emits a flat 30-leaf softmax; the parent tier is derived at inference via `dim_spend_category` lookup. A future hierarchical-softmax architecture can slot in without changing the inference table schema.
+- [ ] Wire `batch_inference.py` actually MERGEing into `ml.invoice_classifications` (currently TODO stubs with implementation hints).
 
-  Doing this requires regenerating the synthetic data (the `_true_spend_category` labels change shape) and rebuilding the lakehouse, so it's a Phase-2 effort, not a small patch.
-
-  **Concrete checklist when we tackle this:**
-  - [ ] Define parent taxonomy in `_lib.SPEND_CATEGORIES` (~8 parents covering the 30 children). Confirm groupings with user before regenerating data.
-  - [ ] Materialize the taxonomy as a UC reference table — `<catalog>.gold.dim_spend_category` (`primary_category`, `secondary_category`, `primary_code`, `secondary_code`, optionally `unspsc_family_code`). Pipeline references it instead of the Python list, so the model can't emit categories outside the taxonomy.
-  - [ ] Generators emit `_true_category_primary` + `_true_category_secondary` on PR / PO / invoice lines (replacing `_true_spend_category`).
-  - [ ] `silver.purchase_request` / `silver.purchase_order` / `silver.invoice_ap` project both columns.
-  - [ ] `gold.fact_*` carry `true_category_primary` + `true_category_secondary`.
-  - [ ] **ML inference output splits**: `ml.invoice_classifications` schema becomes `predicted_primary_category`, `predicted_secondary_category`, `primary_confidence`, `secondary_confidence`, `model_version`, `scored_at`. Init in `01_period_anchors_seed.py` updates accordingly.
-  - [ ] `silver.invoice_classification` + `gold.fact_invoices` projections surface both predicted tiers (NULL until first inference run).
-  - [ ] `batch_inference.py` MERGE writes both columns; validation step asserts every `(predicted_primary, predicted_secondary)` pair exists in `dim_spend_category`.
-  - [ ] Re-run `generate_data`, redeploy bundle, re-run pipeline.
+**Run order to land the data layer:**
+1. Re-run `generate_data` job. Confirm reconcile § 6 (taxonomy parity) passes.
+2. Redeploy bundle + full-refresh the lakehouse pipeline (bronze schemas have new columns).
+3. Run the spend-overview exploration queries to verify both tiers populate cleanly.
 
 ### Open ML questions
 - [ ] **UNSPSC mapping** — should `unspsc_family_code` actually be UNSPSC codes (real taxonomy) or our internal 30-category code? Design doc says "85% auto-classification accuracy to UNSPSC". Simplest: 1:1 map from our 30 categories to a chosen UNSPSC family code each.
@@ -203,12 +196,157 @@
 - [ ] Savings tracking (negotiated vs captured by category/supplier; uses sourcing-event award data).
 
 ---
-
 ## Phase 3 — Apps & Agents
 
-- [ ] Lakebase Supplier Master app (FastAPI + React, see `dbx-app-fastapi-react` skill).
-- [ ] Maverick spend anomaly detection (separate model, on top of classification output).
-- [ ] Autonomous agents (Mosaic AI Agent Framework): spend monitoring, leakage alerter, consolidation recommender.
+> **Owner:** handed off to a teammate (their own Claude Code session). This section is intentionally self-contained so they can land cold and start building without back-and-forth.
+
+**Application:** Strategic Sourcing Portal — a Databricks App for Helios' sourcing organization. Single-page web app reading from `<catalog>.gold.*` for analytics, optionally writing to Lakebase for app-specific state (saved searches, cost-savings ledger entries, chatbot history), and using the Foundation Model API (or external Claude) for the procurement chatbot.
+
+### Onboarding (read in this order before writing any code)
+
+1. **`_demo/00_design_context.md`** — full architecture context. Why Helios exists, how the data was synthesized, segment + geography conventions.
+2. **`data/generators/_lib.py`** lines 89–325 — the 2-tier spend taxonomy (`SPEND_CATEGORIES` + `SPEND_CATEGORY_HIERARCHY`). 8 parents × 30 leaves. The portal should use parent for executive views, leaf for category-manager drill.
+3. **`pipelines/spend/gold/fact_invoices.sql`** — primary data source. Read the `COMMENT` clause to understand the realistic-noise model + LEFT-JOIN inference pattern.
+4. **`ml/README.md`** — the spend-classification model. Predictions land in `<catalog>.ml.invoice_classifications` and LEFT-join through `silver.invoice_classification` onto `gold.fact_invoices`. Both `predicted_primary_category` and `predicted_secondary_category` are surfaced.
+5. **`sql/pipeline_exploration/spend_overview.sql`** — example queries that hit every gold table the portal will use. Run these in DBSQL first to feel the shape of the data.
+6. **`databricks.yml` + `resources/*.yml`** — bundle config. The portal lands here too as `resources/apps.yml` (TBD).
+
+### Tech stack — locked by the `dbx-app-fastapi-react` skill
+
+**Invoke that skill first** (`Skill: dbx-app-fastapi-react`) — it scaffolds the entire stack and locks the design system. Summary of what it gives you:
+
+- **Backend:** FastAPI + `databricks-sql-connector` for OBO (On-Behalf-Of) auth → every query runs as the logged-in user, RBAC respected.
+- **Frontend:** Vite + React + TypeScript. **No Tailwind. No UI library. No chart library.** Hand-drawn SVG charts using the brand `BlobBg` / `PageHero` / `Card` / `AnimatedTileMark` primitives the skill provides.
+- **Fonts:** DM Sans + DM Mono, hosted locally (skill bundles the woff2 files).
+- **Auth:** OBO via the Databricks Apps user-identity header. The backend wraps every query with the user's PAT-equivalent token.
+- **Deploy:** `databricks bundle deploy` provisions the app as a UC-namespaced resource. Add to `resources/apps.yml` and reference from the bundle root.
+
+**Alternative stack:** the `dbx-app-apx` skill gives you APX (also FastAPI + React) if APX features land in time. Default to `dbx-app-fastapi-react` unless instructed otherwise.
+
+### Bundle integration
+
+- Create `resources/apps.yml`. Name: `helios-sourcing-portal-${bundle.target}` (matches the `finance-demo-*` resource naming pattern).
+- Add `app_storage` schema or use Lakebase Postgres if app needs writable state (see "Open decisions" below).
+- The app needs `USE CATALOG` on `${var.catalog}` and `SELECT` on `gold.*`, `silver.*`, `ml.*`. RBAC is via OBO; do not bake service-principal credentials into the app.
+- For the chatbot, the app needs `EXECUTE` on a Model Serving endpoint or `databricks-genai` Foundation Model API access.
+
+### Data layer cheat sheet — which UC tables to use per feature
+
+| Feature | Primary read | Joins | Writes (if any) |
+|---|---|---|---|
+| **Contract burn-down** | `silver.contract_inbound` (active inbound contracts, total_committed_spend, expiration_date) | `gold.fact_invoices` filtered to supplier_id in contract; aggregate amount → "% of contract consumed" | none |
+| **Renewal monitoring** | `silver.contract_inbound` where `expiration_date BETWEEN today AND today + 180 days` | `silver.contract_amendment` for amendment history; `gold.fact_invoices` for trailing-12-month spend with that supplier | none (Phase 3.5 could write renewal-task entries to Lakebase) |
+| **Supplier performance** | `gold.dim_supplier` (maverick_propensity, is_regulated_supplier, payment_terms, category_primary) | `gold.fact_invoices` for on-time payment %, average DPO, dispute rate; `silver.sourcing_event` + `silver.contract_inbound` for past engagement history | none |
+| **Payment-terms renegotiation targeting** | `gold.dim_supplier` + `gold.fact_invoices` | Aggregate spend × current payment_terms; identify high-spend Net15/Net30 suppliers that could be pushed to Net60 for working-capital gains | none (could write target-list to Lakebase) |
+| **Cost savings — Cost Reduction** | `silver.sourcing_event` (RFx events with `awarded_amount` and `pre_negotiation_baseline_amount`) | `gold.fact_invoices` to validate realized savings ("did we actually pay the lower price post-award?") | **NEEDS A NEW TABLE**: `gold.fact_cost_savings` keyed by (savings_event_id, source_type, source_id, segment_code, fiscal_quarter, savings_type='reduction'/'avoidance', amount_usd). Either materialize from a SQL view or write app-side to Lakebase. |
+| **Cost savings — Cost Avoidance** | Manual entry (in-app form) referencing `silver.sourcing_event` / `silver.contract_inbound` / `gold.fact_purchase_orders` | — | Same `gold.fact_cost_savings` table; `savings_type='avoidance'`. **No automatic detection** — avoidance is "supplier asked for +20%, we negotiated to +5%" which doesn't show in actual spend; sourcing managers log it manually with attestation. |
+| **Cost savings — Executive dashboard** | `gold.fact_cost_savings` | `gold.fact_fpa_budgets` / `fact_fpa_actuals` to show savings ÷ budget by segment × quarter | none |
+| **Procurement chatbot** | `gold.fact_purchase_requests`, `gold.dim_supplier`, `gold.dim_spend_category`, `silver.contract_inbound`. **Tools the chatbot can call**: suggest_supplier(category, segment), get_active_contract(supplier_id), price_history(material_code), submit_pr(supplier_id, line_items, …) | Submission writes a PR. **In demo mode**: writes a synthetic row into `bronze_ariba.EBAN_PR_HEADER/LINE` directly (the lakehouse pipeline picks it up on next refresh). Real-world: would call the Ariba API. | `bronze_ariba.EBAN_*` (demo); future: external Ariba API call |
+| **Spend labeling monitor** | `gold.fact_invoices` with `predicted_*_category` columns | `ml.invoice_classifications` for scored_at + model_version; `ml.spend_clf_eval_runs` for model-quality history | none |
+
+### Domain notes for the teammate (don't skip — these drive UX decisions)
+
+**Cost reduction vs cost avoidance:**
+- **Cost reduction** = negotiated price went down. Was paying $100/unit, now paying $80/unit. Shows up in `fact_invoices.amount` going down quarter-over-quarter for the same SKU. *Captured in books.*
+- **Cost avoidance** = supplier proposed a price increase, sourcing negotiated a smaller increase. Supplier wanted +20%, agreed at +5%. The 15% "avoided" never shows in actual spend (you're still paying more than before) — but it's a real value-add from sourcing. *Tracked in a separate ledger only.*
+- Both belong on the executive dashboard, but they roll up differently: cost reduction reduces budget pressure (sourcing helps FP&A hit targets); cost avoidance reduces *future* budget pressure (the bigger you let avoidance grow, the more headroom for new spend without overrunning budget).
+- Industry rule of thumb: avoidance is ~60–70% of total reported sourcing savings; reduction is ~30–40%. Helios numbers should land in that range for realism.
+
+**Sourcing event lifecycle** (already in `silver.sourcing_event`):
+- `RFI` (Request for Information) — early-stage; supplier discovery; no award.
+- `RFP` (Request for Proposal) — competitive proposals; supplier responds with solution + price.
+- `RFQ` (Request for Quote) — price-driven; spec is fixed; cheapest qualified supplier wins.
+- `AUCTION` (reverse auction) — suppliers bid against each other live; price-focused; commoditized categories only.
+- Award → contract → POs → invoices. Cost reduction is measured as `pre_negotiation_baseline_amount - awarded_amount`.
+
+**Contract types** (`silver.contract_inbound.contract_type`):
+- `MSA` (Master Services Agreement) — umbrella; no committed spend; defines terms.
+- `SOW` (Statement of Work) — nests under MSA; committed scope + price.
+- `PRICING_AGREEMENT` — schedule-of-rates; called against by POs.
+- `NDA` — no spend; ignore for burn-down.
+- Only `SOW` and `PRICING_AGREEMENT` have meaningful burn-down; `MSA` and `NDA` should be filtered out.
+
+**Maverick propensity** (`dim_supplier.maverick_propensity`, 0–0.3 beta-distributed): how often this supplier sells outside its `category_primary`. High maverick_propensity = supplier who shows up across many categories = sourcing-strategy red flag (probably a generalist re-selling things, not a specialist).
+
+**Regulated supplier** (`dim_supplier.is_regulated_supplier`, ~8%): utilities, government fees, single-source compliance. The portal should hide these from "negotiation targeting" views — they're not sourcing's to move.
+
+### Per-feature acceptance criteria + non-goals
+
+**1. Contract Burn-Down + Renewal Monitoring**
+- ✅ Lists active contracts with: supplier, segment, contract_type, total_committed_spend, spend-to-date, % consumed, days-to-expiration.
+- ✅ Visual burn-down chart per contract (hand-drawn SVG; one line per contract or stacked).
+- ✅ Renewal queue: contracts expiring in the next 180 days, sorted by trailing-12-mo spend descending (the big ones first).
+- ❌ Out of scope: automatic renewal-task creation in an external system. Just surface the queue; the manager kicks off externally.
+- ❌ Out of scope: contract redlining / clause comparison. That's a different demo.
+
+**2. Supplier Performance + Payment-Terms Renegotiation**
+- ✅ Supplier scorecard: trailing-12-mo spend, # invoices, on-time payment %, avg DPO, current payment terms, maverick propensity, regulated flag, parent + leaf category breakdown of spend.
+- ✅ "Renegotiation targets" view: top-N suppliers by spend × `(target_dpo - current_dpo)` working-capital opportunity, **filtered to `is_regulated_supplier = FALSE`**.
+- ❌ Out of scope: actually pushing payment-terms changes to Ariba / Fusion. Show the recommendation; let the manager act manually.
+- ❌ Out of scope: supplier risk scoring (financial health, geopolitical, etc.). Different demo.
+
+**3. Cost Savings Tracking**
+- ✅ Two write paths: auto-detected reduction (SQL view materializes from sourcing events) + manual avoidance entry (in-app form with attestation).
+- ✅ Link to source: every savings entry references one of (sourcing_event_id, contract_id, po_number).
+- ✅ Executive dashboard: total savings by segment × quarter, split reduction/avoidance, with budget tie-out (savings ÷ FP&A budget for that segment-quarter).
+- ✅ Approval workflow: avoidance entries require a sourcing-manager attestation (logged-in user, timestamp). Reductions are auto-detected and don't need approval.
+- ❌ Out of scope: integration with FP&A planning tools. Surface the impact; don't try to write back to the FP&A budget.
+- ❌ Out of scope: tracking individual sourcing-manager bonuses or KPIs. Aggregate only.
+
+**4. Procurement Chatbot**
+- ✅ Natural-language intake: "I need 50 monitor mounts for the new Austin office."
+- ✅ Suggests: 1–3 candidate suppliers (from `dim_supplier` filtered to category + region + non-maverick), best payment terms available, volume-discount tiers if any, applicable active contracts.
+- ✅ Validation: user-confirmed PR submission (always a confirmation step before write) writes a synthetic PR to `bronze_ariba.EBAN_PR_HEADER/LINE` and returns the PR number.
+- ✅ Guardrails: must reject any submission > $25,000 (sourcing-manager engagement threshold); must reject suppliers flagged regulated unless explicitly overridden.
+- ❌ Out of scope: actual Ariba API integration. Demo writes to bronze directly; production would call Ariba's REST API.
+- ❌ Out of scope: multi-turn negotiation. Single-shot intake → suggestions → confirm → submit.
+- ❌ Out of scope: Genie / NL-to-SQL. The chatbot has explicit tools (suggest_supplier, get_active_contract, etc.); don't let it write arbitrary SQL.
+
+**5. Spend labeling monitor (extra)**
+- ✅ Coverage: % of `fact_invoices` rows with a non-null `predicted_secondary_category`, by quarter + segment.
+- ✅ Confidence distribution: histograms of `secondary_confidence` and `primary_confidence`.
+- ✅ "Disagreement" table: rows where `true_category_secondary <> predicted_secondary_category`. These are either model errors OR genuinely mis-coded purchases — the table is the leakage-detection surface.
+- ✅ Model history: read `ml.spend_clf_eval_runs` to show champion-vs-challenger trend.
+- ❌ Out of scope: retraining the model from the UI. That's a Jobs-API call the user can fire from the Workflows UI.
+
+### Open decisions for the teammate
+
+These are real architecture choices with no "right" answer — pick one and document.
+
+1. **App-side state: Lakebase Postgres vs. a UC Delta table?**
+   - Lakebase: better for cost-savings ledger entries, chatbot conversation history, saved searches. Fast OLTP writes. Use `databricks-lakebase-autoscale` skill.
+   - UC Delta: keeps everything in the lakehouse; no separate database; analytics on app data is one join away. But OLTP writes are slow.
+   - **Default recommendation**: Lakebase for chatbot history + cost-savings ledger; UC Delta for everything else.
+
+2. **Chatbot LLM: Foundation Model API (Llama 3 / Claude on Databricks) vs. external Anthropic API?**
+   - FMAPI: stays inside Databricks; OBO auth; lower latency; counts against Databricks DBUs. Use `databricks-model-serving` + `mlflow-onboarding` skills.
+   - External Anthropic: better Claude model versions; but requires managing an API key as a secret; doesn't inherit Databricks RBAC.
+   - **Default recommendation**: FMAPI with a Llama 3 or Claude endpoint. Tool-use is supported.
+
+3. **Cost-savings ledger: SQL view (auto-detect reductions) vs. fully-app-side (Lakebase)?**
+   - SQL view: reductions auto-materialize; can't be edited; reproducible.
+   - App-side: more flexible; supports overrides + comments; loses the "as-of" reproducibility.
+   - **Default recommendation**: hybrid. SQL view materializes the auto-detected baseline; the app's Lakebase store holds overrides + manual avoidance entries; the UI joins them.
+
+4. **Single-page vs. multi-route?**
+   - Strategic Sourcing Portal naturally has 4–5 top-level views (Contracts, Suppliers, Cost Savings, Chatbot, Labeling Monitor). React Router with sidebar nav is the obvious choice.
+
+### What's already wired in the repo
+
+- All UC tables listed above already exist (or are stubbed — `silver.sourcing_event`, `silver.contract_inbound`, `silver.contract_amendment` may need ingestion-side verification; cross-check with `pipelines/legal/*.sql`).
+- The `fact_cost_savings` gold table does NOT exist yet. Teammate creates it: either as `pipelines/spend/gold/fact_cost_savings.sql` (auto-detected baseline only) or as a Lakebase-backed app table (full ledger).
+- ML model output (`ml.invoice_classifications`) is populated by `batch_inference.py` after the `train_spend_classifier` job runs. Verify it's non-empty before building the labeling monitor.
+
+### Verification checklist (for the teammate's "done" definition)
+
+1. [ ] `databricks bundle deploy -t dev` provisions the app (visible in Workspace → Apps).
+2. [ ] App URL serves a React landing page using DM Sans + the brand BlobBg/PageHero/Card primitives.
+3. [ ] OBO auth works: queries return rows scoped to the logged-in user's UC permissions.
+4. [ ] Every primary feature (4 + 1 extra) renders without errors against `dev` catalog data.
+5. [ ] Cost-savings auto-detection materializes ≥ 10 rows from existing sourcing events.
+6. [ ] Chatbot submits a synthetic PR end-to-end (intake → suggestions → confirm → bronze write → PR# returned).
+7. [ ] Lakehouse pipeline refresh picks up the chatbot-submitted PR on next run (silver → gold propagation works).
+8. [ ] Hand-drawn SVG charts render; no Tailwind / no chart-library imports in `package.json`.
 
 ---
 
@@ -242,5 +380,4 @@
 3. [ ] `gold.fact_fpa_actuals` totals reconcile to anchor `revenue` / `cogs + sga + rd` per (fy, fq, segment) within ±2%.
 4. [x] Reconciliation gate (`99_reconcile.py`) passes for raw files.
 5. [ ] Anonymization audit: zero hits for source filer name / original segment names in UC table content.
-6. [ ] 10-Q replay smoke test.
 7. [ ] `ml.invoice_classifications` exists (empty) after data-generation job; `gold.fact_invoices.predicted_category` resolves to NULL until first inference run.

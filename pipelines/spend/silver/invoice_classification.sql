@@ -12,12 +12,14 @@
 -- ============================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW ${schema_silver}.invoice_classification
-COMMENT "ML inference output for invoice lines. Populated by batch_inference.py; LEFT-joined to fact_invoices. Empty when inference hasn't run."
+COMMENT "ML inference output for invoice lines. Populated by batch_inference.py; LEFT-joined to fact_invoices. Empty when inference hasn't run. 2-tier schema: primary (parent) + secondary (leaf) with per-tier confidences."
 AS
 SELECT
   CAST(invoice_line_id AS BIGINT)              AS invoice_line_id,
-  predicted_category,
-  CAST(classification_confidence AS DOUBLE)    AS classification_confidence,
+  predicted_primary_category,
+  predicted_secondary_category,
+  CAST(primary_confidence AS DOUBLE)           AS primary_confidence,
+  CAST(secondary_confidence AS DOUBLE)         AS secondary_confidence,
   model_version,
   CAST(scored_at AS TIMESTAMP)                 AS scored_at
 FROM ${catalog}.${schema_ml}.invoice_classifications;

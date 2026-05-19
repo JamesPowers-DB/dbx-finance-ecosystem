@@ -27,18 +27,42 @@ FROM gold.fact_invoices
 GROUP BY ALL
 ORDER BY fiscal_year, fiscal_quarter, segment_code;
 
--- Section 2 ------------------------------------------------------------------
--- Spend distribution across the 30 ground-truth categories.
--- This is the label distribution the ML classifier is learning.
+-- Section 2a -----------------------------------------------------------------
+-- Spend distribution across the 8 PARENT categories (executive rollup).
 SELECT
-  true_spend_category,
+  true_category_primary,
+  COUNT(*)                       AS lines,
+  ROUND(SUM(amount) / 1e6, 2)    AS spend_mm,
+  ROUND(100.0 * SUM(amount) / SUM(SUM(amount)) OVER (), 1) AS pct_of_total,
+  COUNT(DISTINCT supplier_id)    AS suppliers
+FROM gold.fact_invoices
+GROUP BY true_category_primary
+ORDER BY spend_mm DESC;
+
+-- Section 2b -----------------------------------------------------------------
+-- Spend distribution across the 30 leaf categories (category-manager drill).
+-- This is the label distribution the ML classifier learns at the leaf tier.
+SELECT
+  true_category_primary,
+  true_category_secondary,
   COUNT(*)                       AS lines,
   ROUND(SUM(amount) / 1e6, 2)    AS spend_mm,
   ROUND(AVG(amount), 0)          AS avg_line_amount,
   COUNT(DISTINCT supplier_id)    AS suppliers
 FROM gold.fact_invoices
-GROUP BY true_spend_category
-ORDER BY spend_mm DESC;
+GROUP BY true_category_primary, true_category_secondary
+ORDER BY true_category_primary, spend_mm DESC;
+
+-- Section 2c -----------------------------------------------------------------
+-- Taxonomy reference — the source of truth for valid (primary, secondary) pairs.
+SELECT
+  primary_code,
+  primary_name,
+  COUNT(*)                                                          AS n_leaves,
+  COLLECT_LIST(secondary_code)                                      AS leaves
+FROM gold.dim_spend_category
+GROUP BY primary_code, primary_name
+ORDER BY n_leaves DESC, primary_code;
 
 -- Section 3 ------------------------------------------------------------------
 -- Direct vs. Indirect breakdown (rule-based off GL natural account).
@@ -206,13 +230,34 @@ ORDER BY pr.fiscal_year, pr.fiscal_quarter, pr.segment_code;
 
 -- Section 12 -----------------------------------------------------------------
 -- ML predictions vs. ground truth (only meaningful after batch_inference runs).
--- Empty (or all NULL predicted_category) until the model has scored.
+-- Empty (or all NULL predicted_*) until the model has scored.
+-- Parent-tier accuracy should be meaningfully higher than leaf-tier — that's
+-- the headline "exec view" vs. "category-manager view" framing.
 SELECT
-  predicted_category IS NOT NULL                  AS has_prediction,
-  COUNT(*)                                        AS lines,
-  ROUND(AVG(classification_confidence), 3)        AS avg_confidence,
-  ROUND(100.0 * AVG(CASE WHEN predicted_category = true_spend_category THEN 1.0 ELSE 0.0 END), 1)
-                                                  AS accuracy_pct
+  predicted_secondary_category IS NOT NULL                  AS has_prediction,
+  COUNT(*)                                                  AS lines,
+  ROUND(AVG(secondary_confidence), 3)                       AS avg_leaf_confidence,
+  ROUND(AVG(primary_confidence), 3)                         AS avg_parent_confidence,
+  ROUND(100.0 * AVG(CASE WHEN predicted_secondary_category = true_category_secondary
+                         THEN 1.0 ELSE 0.0 END), 1)         AS leaf_accuracy_pct,
+  ROUND(100.0 * AVG(CASE WHEN predicted_primary_category = true_category_primary
+                         THEN 1.0 ELSE 0.0 END), 1)         AS parent_accuracy_pct
 FROM gold.fact_invoices
 GROUP BY has_prediction
 ORDER BY has_prediction DESC;
+
+-- Section 13 -----------------------------------------------------------------
+-- Confusion at the parent tier — which parents do we mix up most?
+-- Useful for the demo deck: "the model rarely confuses Direct Materials with
+-- Professional Services, but it does confuse IT_Telecom with Software_Cloud."
+SELECT
+  true_category_primary                                     AS truth_parent,
+  predicted_primary_category                                AS pred_parent,
+  COUNT(*)                                                  AS lines,
+  ROUND(SUM(amount) / 1e6, 2)                               AS spend_mm
+FROM gold.fact_invoices
+WHERE predicted_primary_category IS NOT NULL
+  AND true_category_primary <> predicted_primary_category
+GROUP BY ALL
+ORDER BY spend_mm DESC
+LIMIT 20;

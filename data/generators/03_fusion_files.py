@@ -254,10 +254,33 @@ def determine_payment_status(invoice_date: date, payment_terms: str, rng: np.ran
     return status, None
 
 
+def apply_recording_noise(actual_leaf: str, rng_local: np.random.Generator) -> str:
+    """With probability LABEL_NOISE_RATE, swap `actual_leaf` to a sibling under
+    the same parent. Returns the original leaf otherwise (and also when the
+    parent has no siblings). Intra-parent only — parent tier is unaffected.
+
+    Real category managers mis-tag inconsistently (~5-15% in practice);
+    LABEL_NOISE_RATE is set to 0.08 in _lib. The line's content (vocabulary,
+    gl_account, supplier) stays consistent with `actual_leaf` — only the
+    recorded label is noisy."""
+    if rng_local.random() >= LABEL_NOISE_RATE:
+        return actual_leaf
+    parent = CHILD_TO_PARENT.get(actual_leaf)
+    if not parent:
+        return actual_leaf
+    siblings = [c for c in PARENT_TO_CHILDREN[parent] if c != actual_leaf]
+    if not siblings:
+        return actual_leaf
+    return str(rng_local.choice(siblings))
+
+
 def generate_quarter_fusion(fy: int, fq: int):
     quarter_label = f"{fy}Q{fq}"
     months_ = QUARTER_MONTHS[fq]
     rng = rng_for(f"fusion:q:{quarter_label}")
+    # Dedicated RNG for label noise so changing the noise rate doesn't shift
+    # every other random draw downstream.
+    rng_noise = rng_for(f"fusion:label_noise:{quarter_label}")
 
     # ---- 1. Read released Ariba PRs for this quarter ------------------------
     pr_header_file = f"{ARIBA}/EBAN_PR_HEADER_{quarter_label}.csv"
@@ -344,7 +367,8 @@ def generate_quarter_fusion(fy: int, fq: int):
                 "source_pr_number_ext": banfn,
                 "source_pr_line_num_ext": int(prl["BNFPO"]),
                 "_segment_code": seg,
-                "_true_spend_category": prl["_true_spend_category"],
+                "_true_category_primary": prl["_true_category_primary"],
+                "_true_category_secondary": prl["_true_category_secondary"],
                 "_intended_invoice_amount": po_unit_price * float(prl["MENGE"]),
             }
             po_lines_rows.append(line_row)
@@ -406,10 +430,16 @@ def generate_quarter_fusion(fy: int, fq: int):
             next_invoice_line_id += 1
 
             seg = poline["_segment_code"]
-            cat_code = poline["_true_spend_category"]
+            # `cat_code` is the ACTUAL category — the buyer knew what they bought.
+            # GL coding follows the actual purchase. Then we apply ~8% recording
+            # noise to the RECORDED label (sibling within same parent).
+            cat_code = poline["_true_category_secondary"]
+            cat_parent = poline["_true_category_primary"]
             acct = CATEGORY_TO_GL_ACCOUNT.get(cat_code, "5000")
             acct_type = NATURAL_ACCOUNTS[acct][1]
             ccid = pick_ccid(rng, seg, acct_type)
+            recorded_cat_code = apply_recording_noise(cat_code, rng_noise)
+            # Parent stays — noise is intra-parent only.
 
             ap_invoice_lines_rows.append({
                 "invoice_line_id": invoice_line_id,
@@ -423,7 +453,8 @@ def generate_quarter_fusion(fy: int, fq: int):
                 "po_line_id": poline["po_line_id"],
                 "code_combination_id": ccid,
                 "_segment_code": seg,
-                "_true_spend_category": cat_code,
+                "_true_category_primary": cat_parent,
+                "_true_category_secondary": recorded_cat_code,
             })
 
         ap_invoices_rows.append({
@@ -487,9 +518,12 @@ def generate_quarter_fusion(fy: int, fq: int):
         except (KeyError, IndexError):
             desc = f"{adj} {noun} — {extra_filled}"
 
+        # GL account derived from the ACTUAL category. Recording noise is
+        # applied only to the recorded label (sibling within same parent).
         acct = CATEGORY_TO_GL_ACCOUNT.get(cat_code, "6010")
         acct_type = NATURAL_ACCOUNTS[acct][1]
         ccid = pick_ccid(rng_npov, seg, acct_type)
+        recorded_cat_code = apply_recording_noise(cat_code, rng_noise)
 
         invoice_line_id = next_invoice_line_id
         next_invoice_line_id += 1
@@ -505,7 +539,8 @@ def generate_quarter_fusion(fy: int, fq: int):
             "po_line_id": None,
             "code_combination_id": ccid,
             "_segment_code": seg,
-            "_true_spend_category": cat_code,
+            "_true_category_primary": CHILD_TO_PARENT[cat_code],
+            "_true_category_secondary": recorded_cat_code,
         })
         ap_invoices_rows.append({
             "invoice_id": invoice_id,
@@ -710,8 +745,9 @@ def generate_quarter_fusion(fy: int, fq: int):
         pl.DataFrame(po_headers_rows).drop("_helios_segment_code"),
         f"{OUT}/po_headers_all_{quarter_label}.csv",
     )
-    # Keep _segment_code (used by silver/gold for segment-level rollups) and
-    # _true_spend_category (label propagation path: PR→PO→invoice line for ML).
+    # Keep _segment_code (used by silver/gold for segment-level rollups) and the
+    # 2-tier label columns (_true_category_primary + _true_category_secondary —
+    # the supervised-label propagation path PR→PO→invoice line for ML).
     # Drop only the purely-internal _intended_invoice_amount used during gen.
     write_parquet(
         pl.DataFrame(po_lines_rows).drop("_intended_invoice_amount"),
@@ -753,7 +789,8 @@ def generate_quarter_fusion(fy: int, fq: int):
         "po_line_id": pl.Int64,
         "code_combination_id": pl.Int64,
         "_segment_code": pl.Utf8,
-        "_true_spend_category": pl.Utf8,
+        "_true_category_primary": pl.Utf8,
+        "_true_category_secondary": pl.Utf8,
     }
     write_parquet(
         pl.DataFrame(ap_invoice_lines_rows, schema=ap_line_schema),

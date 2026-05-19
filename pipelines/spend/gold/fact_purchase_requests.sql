@@ -39,7 +39,10 @@ SELECT
   pr.price_unit,
   CAST(pr.quantity * pr.estimated_unit_price AS DECIMAL(18, 2)) AS estimated_extended_amount,
   pr.currency,
-  pr.true_spend_category
+  -- Demo-only ground truth (2-tier). In production this column wouldn't exist on PR
+  -- exports — the customer would assemble a manually-curated training set instead.
+  pr.true_category_primary,
+  pr.true_category_secondary
 FROM ${schema_silver}.purchase_request pr
 LEFT JOIN ${schema_gold}.dim_supplier s
   ON pr.intended_supplier_id = s.supplier_id;

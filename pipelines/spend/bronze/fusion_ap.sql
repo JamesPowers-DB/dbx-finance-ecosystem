@@ -13,7 +13,7 @@
 -- source_po_header_id (NULL for non-PO direct vouchers).
 --
 -- Lines carry: code_combination_id (GL posting), _segment_code,
--- _true_spend_category (the ML training label).
+-- 2-tier ML training labels (_true_category_primary + _true_category_secondary).
 -- ============================================================================
 
 CREATE OR REFRESH STREAMING TABLE ${schema_bronze_fusion}.ap_invoices_all

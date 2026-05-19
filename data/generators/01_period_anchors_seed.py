@@ -2,15 +2,17 @@
 # MAGIC %md
 # MAGIC # Generator: seed `_meta.dim_period_anchors`
 # MAGIC
-# MAGIC Hand-curated rows for FY2023, FY2024, Q1 2025, Q2 2025, Q3 2025.
-# MAGIC Values are at the **Helios 1/10 scale** (reference 10-K/10-Q divided by
-# MAGIC 10, with Helios segment names and NA/EMEA/APAC/LATAM geographies).
-# MAGIC Numbers approximate the reference filings' reported shape but are not
-# MAGIC exact — plausibly "real industrial conglomerate at $3.85B FY revenue."
+# MAGIC Hand-curated rows spanning FY2023 → Q1 2026 (FY consolidated + quarterly).
+# MAGIC Values are at the **Helios 1/10 scale** of the reference industrial — 1/10
+# MAGIC of the public filings' reported shape, with Helios segment names and
+# MAGIC NA/EMEA/APAC/LATAM geographies. Plausibly "real industrial conglomerate
+# MAGIC at ~$3.9B FY revenue."
 # MAGIC
-# MAGIC Future quarters are NOT added here. They flow through:
-# MAGIC `data/ml/extract_10q.py` → `review_anchor_draft.py` →
-# MAGIC MERGE into this table.
+# MAGIC To extend the demo to additional quarters, hand-code another tuple in
+# MAGIC `CONSOL_PERIODS` below and re-run the data-generation job. Earlier
+# MAGIC iterations of the demo had an AI-extraction-from-10-Q workflow; it was
+# MAGIC removed in favor of direct seeding because the indirection added
+# MAGIC complexity without changing what gets demoed.
 
 # COMMAND ----------
 # MAGIC %run ./_lib
@@ -58,6 +60,19 @@ CONSOL_PERIODS = [
     ("Q", 2025, 3, date(2025, 9, 30),
      1001.0, 661.0, 146.0, 40.0, 170.0, 18.0, 33.0, 149.0,
      1135.0, 922.0, 612.0, 660.0, 2500.0, 6485.0, 1582.0, 172.0, 27.0, 145.0, 10355,
+     "10-Q", ""),
+    ("Q", 2025, 4, date(2025, 12, 31),
+     1040.0, 685.0, 150.0, 41.0, 178.0, 18.0, 35.0, 156.0,
+     1158.0, 945.0, 620.0, 678.0, 2487.0, 6550.0, 1612.0, 178.0, 28.0, 150.0, 10395,
+     "10-K", ""),
+    # FY2025 = sum of Q1-Q4 2025 P&L; balance sheet at Q4 close; cash flow summed.
+    ("FY", 2025, None, date(2025, 12, 31),
+     3927.0, 2596.0, 575.0, 158.0, 667.0, 70.0, 130.0, 585.0,
+     1158.0, 945.0, 620.0, 678.0, 2487.0, 6550.0, 1612.0, 673.0, 106.0, 567.0, 10395,
+     "10-K", ""),
+    ("Q", 2026, 1, date(2026, 3, 31),
+     965.0, 640.0, 143.0, 40.0, 164.0, 17.0, 31.0, 144.0,
+     1180.0, 962.0, 628.0, 685.0, 2475.0, 6605.0, 1635.0, 165.0, 26.0, 139.0, 10440,
      "10-Q", ""),
 ]
 
@@ -143,17 +158,6 @@ sdf = spark.createDataFrame(df.to_pandas())
 print(f"Seeded {sdf.count()} rows into {catalog}.{schema_meta}.dim_period_anchors")
 
 # COMMAND ----------
-# MAGIC %md ## Initialize the draft table (empty until first 10-Q lands)
-
-# COMMAND ----------
-empty = spark.createDataFrame([], sdf.schema)
-(empty.write.format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "true")
-    .saveAsTable(f"`{catalog}`.`{schema_meta}`.dim_period_anchors_draft"))
-print(f"Initialized empty {catalog}.{schema_meta}.dim_period_anchors_draft")
-
-# COMMAND ----------
 # MAGIC %md ## Initialize ml.invoice_classifications (empty until batch inference runs)
 # MAGIC
 # MAGIC The spend-classification model's batch-inference job MERGEs into this table.
@@ -164,15 +168,20 @@ print(f"Initialized empty {catalog}.{schema_meta}.dim_period_anchors_draft")
 # COMMAND ----------
 if schema_ml:
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema_ml}`")
+    # CREATE OR REPLACE so the schema evolves cleanly between demo iterations.
+    # The table is the *inference output*; truncating between data-gen runs is
+    # the right behavior (stale predictions tied to old data shouldn't linger).
     spark.sql(f"""
-        CREATE TABLE IF NOT EXISTS `{catalog}`.`{schema_ml}`.invoice_classifications (
+        CREATE OR REPLACE TABLE `{catalog}`.`{schema_ml}`.invoice_classifications (
             invoice_line_id BIGINT,
-            predicted_category STRING,
-            classification_confidence DOUBLE,
+            predicted_primary_category STRING,
+            predicted_secondary_category STRING,
+            primary_confidence DOUBLE,
+            secondary_confidence DOUBLE,
             model_version STRING,
             scored_at TIMESTAMP
         ) USING DELTA
     """)
-    print(f"Ensured {catalog}.{schema_ml}.invoice_classifications exists")
+    print(f"Created/refreshed {catalog}.{schema_ml}.invoice_classifications (2-tier schema, empty)")
 else:
     print("schema_ml widget not set — skipping ml.invoice_classifications init")

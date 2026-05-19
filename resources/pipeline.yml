@@ -70,6 +70,7 @@ resources:
         - file: { path: ../pipelines/reference/gold/dim_segment.sql }
         - file: { path: ../pipelines/reference/gold/dim_date.sql }
         - file: { path: ../pipelines/reference/gold/dim_macro_environment.sql }
+        - file: { path: ../pipelines/reference/gold/dim_spend_category.sql }
 
       configuration:
         # Exposed inside SQL files as ${catalog}, ${schema_bronze_ariba}, etc.
