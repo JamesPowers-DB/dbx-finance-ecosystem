@@ -1,0 +1,25 @@
+resources:
+  apps:
+    helios_sourcing_portal:
+      name: helios-sourcing-portal-${bundle.target}
+      description: >
+        Helios Strategic Sourcing Portal — contract burn-down, supplier performance,
+        cost savings tracking, procurement chatbot, and spend labeling monitor.
+        Reads from Unity Catalog gold/silver/ml tables via OBO auth. App state
+        (chatbot history + manual avoidance entries) persists in Lakebase Postgres.
+      source_code_path: ${workspace.file_path}/apps/helios-sourcing-portal
+
+      resources:
+        - name: warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+
+      # OBO: Apps injects X-Forwarded-Access-Token per request so every UC
+      # query runs as the logged-in user. Without this, the app runs in
+      # app-principal mode and all OBO routes 401.
+      user_api_scopes:
+        - sql
+        - postgres
+        - serving.serving-endpoints
+        - dashboards.genie

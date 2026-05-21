@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Helios Sourcing Portal</title>
+    <link rel="icon" type="image/svg+xml" href="/ds/assets/databricks-symbol-color.svg" />
+    <link rel="stylesheet" href="/ds/colors_and_type.css" />
+    <style>
+      html, body, #root { margin: 0; padding: 0; height: 100%; }
+      body {
+        background: var(--db-oat-light);
+        font-family: var(--font-sans);
+        color: var(--fg-1);
+        overflow: hidden;
+      }
+      #root { display: flex; height: 100vh; }
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-thumb { background: var(--db-navy-300); border-radius: 5px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      table { font-variant-numeric: tabular-nums; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

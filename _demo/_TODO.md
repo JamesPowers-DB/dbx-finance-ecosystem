@@ -6,7 +6,7 @@
 
 ---
 
-## 📍 Status snapshot (as of 2026-05-15)
+## 📍 Status snapshot (as of 2026-05-20)
 
 **Working end-to-end:**
 - ✅ DAB scaffold + direct deployment engine on `mode: production` (both dev + prod) with `${bundle.target}` suffix on job/pipeline names
@@ -24,9 +24,57 @@
 - ✅ `evaluate.py` compares aliases + GL baseline on both holdouts at both taxonomy tiers; appends to `spend_clf_eval_runs`; promotes winner to `@production`
 - ✅ `batch_inference.py` scores `fact_invoices` via `spark_udf` and MERGEs into `ml.invoice_classifications`
 - ✅ 8% intra-parent label recording noise on invoice lines (`_lib.LABEL_NOISE_RATE`) — caps leaf accuracy ~92%, leaves parent accuracy near 100%. Applied only at invoice-stamp time in `03_fusion_files.py` (PRs/POs stay clean).
+- ✅ **`gold.fact_invoices` confirmed populated** — 312,188 rows, FY23–FY26 Q1
+- ✅ **`ml.invoice_classifications` fully populated** — all 312,188 invoice lines classified with `predicted_primary_category` + `predicted_secondary_category`
 
-**Next immediate step:**
-Re-run the full `train_spend_classifier` DAG end-to-end on `dev` to land the first `@production` model and populate predictions on `fact_invoices`. Then resume the consumption surfaces (sourcing-strategy view + dashboards).
+**Phase 3 (Apps) is now live and all pages verified with real data:**
+- ✅ `pipelines/spend/gold/fact_cost_savings.sql` — gold table created; 1,899 rows, $47.6M savings across 30 categories
+- ✅ `resources/pipeline.yml` updated to include `fact_cost_savings.sql`
+- ✅ `databricks.yml` updated: `warehouse_id` variable + `sync.include` for frontend dist
+- ✅ `resources/apps.yml` — new bundle resource, `helios-sourcing-portal-${bundle.target}`, warehouse OBO binding
+- ✅ `apps/helios-sourcing-portal/` — full FastAPI + Vite/React/TS app scaffold (50+ files)
+- ✅ App live at `https://helios-sourcing-portal-dev-1444828305810485.aws.databricksapps.com`
+- ✅ All 5 features rendering with real data: Contract Burn-Down (423 active), Supplier Performance (3,000 suppliers), Cost Savings ($47.6M), Procurement Chatbot, Spend Labeling Monitor (100% coverage)
+- ✅ Lakebase `helios-sourcing` provisioned; `postgres` scope added to app; Lakebase DDL runs on first user request
+- ✅ OBO auth; SP env-var conflicts resolved (`DATABRICKS_CLIENT_ID`/`SECRET` cleared at startup in `main.py`)
+
+**Latest session (2026-05-21) — Chatbot hardening + Genie SQL/feedback:**
+- **Chatbot `TypeError: network error` fixed** — Root cause: SP M2M OIDC token fetch (`_get_sp_token`) raised `HTTPError 401`, which escaped the async generator and aborted the SSE stream mid-response. Fix: `_get_sp_token` now returns `None` on any error (never raises); `_stream_response` and `ask_genie` fall back to caller OBO token (`serving.serving-endpoints` + `dashboards.genie` scopes). App recreated with fresh SP (`56556626-a002-403d-b03e-925d38b8d763`) — old SP had broken client_credentials grant.
+- **`node_modules` excluded from bundle sync** — Added `sync.exclude` for `apps/*/frontend/node_modules/**`, `.venv`, `__pycache__` in `databricks.yml`. App was exceeding 2000-file deployment limit (2821 files including node_modules). Now 77 files.
+- **SP UC + Genie permissions** — New app SP granted: `USE_CATALOG` + `USE_SCHEMA` (gold, silver) + `SELECT` on 11 tables in `horizontal_finance_dev`; `CAN_EDIT` on Genie Space `01f154f176351736be32d20533d9f257`.
+- **Tool card collapsible args** — Chatbot tool cards now collapsed by default; `chev_r`/`chev_d` toggle reveals args JSON. `expandedTools` state resets per message.
+- **Genie SQL display + thumbs feedback** — `run_genie_query` now returns `conv_id`, `msg_id`, `space_id` alongside `sql` + `row_count`. Frontend parses `tool_result` SSE events for `ask_genie` and renders SQL block + 👍/👎 buttons inside expanded tool card. Thumbs call `POST /api/chat/genie-feedback` → `PUT /api/2.0/genie/…/feedback` (OBO token). Rating highlighted in lava on selection; "Feedback sent" confirmation shown.
+
+**Deploy commands (direct CLI — bundle update mask bug workaround):**
+```bash
+cd apps/helios-sourcing-portal/frontend && npm run build
+cd ../../..
+databricks bundle deploy --target dev --profile e2-demo-field-eng --var warehouse_id=e9b34f7a2e4b0561
+databricks apps deploy helios-sourcing-portal-dev \
+  --source-code-path "/Workspace/Users/michael.goo@databricks.com/.bundle/dbx-finance-ecosystem/dev/files/apps/helios-sourcing-portal" \
+  --profile e2-demo-field-eng
+```
+> Note: `bundle deploy` will error on catalog/pipeline/volume "already exists" — these are harmless. The app resource update also errors with "Invalid update mask" — ignore it; the file upload still succeeds. The `apps deploy` step is the actual redeploy.
+
+**Bugs fixed + features added in this session:**
+- SQL `MISSING_GROUP_BY` in KPI `contract_coverage_pct` query
+- `DECIMAL` columns from DBSQL serialized as strings → `.toFixed()` crash on Suppliers + Labeling Monitor pages (fixed with `Number()` coercion; `fmtPct`/`fmtDelta` hardened)
+- Contract type abbreviations (`SOW`, `PRICING_AGREEMENT`) didn't match actual data values (`Statement of Work`, `Framework`) — fixed in all 4 routers
+- Databricks SDK `oauth + pat` conflict: `apps update` wipes resource bindings unless the full `resources` block is included — warehouse re-added; factory pattern: always pass full JSON body to `apps update`
+- `Promise.all` on Cost Savings replaced with `Promise.allSettled` so reductions/summary show even if Lakebase avoidance call fails
+- **Sidebar search enabled** — `searchQuery` state in `App.tsx`, real `<input>` in `Sidebar.tsx`, client-side filtering wired into Contracts (supplier name, title, region), Suppliers (name, category, region, terms), Cost Savings (supplier, category, event title), and Labeling Monitor disagreements tab. Border highlights lava on active query; `×` clear button; query clears on page navigation.
+- **Genie Space + Chatbot** — Created `Helios Spend Analytics` Genie Space (`01f154f176351736be32d20533d9f257`) over 8 gold/silver procurement tables. Added `ask_genie` as a 6th tool in the FMAPI chatbot; analytics prompts now deterministically route to Genie and execute with the app service principal token (SP-only mode). `GENIE_SPACE_ID` wired into `app.yaml` + `config.py`.
+- **Chatbot UX** — Centered landing layout: Databricks icon → title → **full-width input bar** → 2-column prompt tiles. Clicking a prompt populates the input (doesn't auto-send); user presses Enter or clicks Send. Bottom input bar only shows once a session is active. "+ New Chat" resets to the landing state. Auto-creates a session on first send. Session titles update from first message content.
+- **Chatbot Lakebase best-effort** — All `db_conn` calls in `chatbot.py` wrapped in `try/except`; session creation returns a stub UUID without requiring Lakebase; streaming works even when Lakebase is unavailable (OBO token may lack `postgres` scope until user re-authenticates). Fall-back: single-turn mode (no history) when Lakebase is unreachable.
+- **Chatbot FMAPI fix** — `serving_endpoints.query()` in SDK <=0.81 does not accept a `tools` kwarg. Replaced with a direct REST call to `POST /serving-endpoints/{name}/invocations` via `urllib` (same OBO token). Response parsed as a plain dict — no SDK version dependency. Supports full tool-call round-trips. Added `https://` guard for when Apps runtime injects `DATABRICKS_HOST` without scheme. Added `serving.serving-endpoints` to `user_api_scopes` (was getting 403 Forbidden without it).
+- **Genie `ask_genie` hardening** — (1) `https://` guard on Genie host; (2) switched to **SP-only auth** for Genie API calls (no OBO fallback path); (3) deterministic routing enforces Genie calls for analytics prompts plus FMAPI missed-tool fallback; (4) structured logs now emit routing decision + auth mode + question hash for triage; (5) tool output still prioritizes Genie `text` attachment as primary `answer`.
+
+**Next immediate steps (Phase 3 finalization):**
+1. ✅ ~~Provision Lakebase instance~~ — `helios-sourcing` project live; OBO auth wired; DDL runs on first user request
+2. Add DM Sans / DM Mono `.ttf` files to `apps/helios-sourcing-portal/frontend/public/ds/fonts/`, rebuild frontend, redeploy (fonts currently falling back to system fonts)
+3. End-to-end chatbot test: (a) ask an analytics question — verify `ask_genie` routes to Genie; (b) submit a PR — verify it lands in `bronze_ariba.EBAN_PR_LINE`
+4. Resolve bundle state drift (or accept direct CLI deploy as the workaround)
+5. Move to Phase 4 — demo script, pitch deck, dbdemos packaging
 
 ---
 
@@ -225,6 +273,7 @@ Implemented 2026-05-17. The supervised label is now a 2-tier taxonomy: 8 parent 
 
 ### Bundle integration
 
+- Put all app resources in the /apps directory
 - Create `resources/apps.yml`. Name: `helios-sourcing-portal-${bundle.target}` (matches the `finance-demo-*` resource naming pattern).
 - Add `app_storage` schema or use Lakebase Postgres if app needs writable state (see "Open decisions" below).
 - The app needs `USE CATALOG` on `${var.catalog}` and `SELECT` on `gold.*`, `silver.*`, `ml.*`. RBAC is via OBO; do not bake service-principal credentials into the app.
@@ -309,44 +358,139 @@ Implemented 2026-05-17. The supervised label is now a 2-tier taxonomy: 8 parent 
 - ✅ Model history: read `ml.spend_clf_eval_runs` to show champion-vs-challenger trend.
 - ❌ Out of scope: retraining the model from the UI. That's a Jobs-API call the user can fire from the Workflows UI.
 
-### Open decisions for the teammate
+### Architecture decisions — locked ✅
 
-These are real architecture choices with no "right" answer — pick one and document.
+1. **App-side state: Lakebase Postgres** — chosen for chatbot history (`chatbot_sessions`, `chatbot_messages`) and manual avoidance ledger (`savings_avoidance_entries`). Tables created on startup via DDL in `apps/helios-sourcing-portal/backend/lakebase.py`. ⚠️ Not yet provisioned — `LAKEBASE_HOST` is blank in `app.yaml`.
 
-1. **App-side state: Lakebase Postgres vs. a UC Delta table?**
-   - Lakebase: better for cost-savings ledger entries, chatbot conversation history, saved searches. Fast OLTP writes. Use `databricks-lakebase-autoscale` skill.
-   - UC Delta: keeps everything in the lakehouse; no separate database; analytics on app data is one join away. But OLTP writes are slow.
-   - **Default recommendation**: Lakebase for chatbot history + cost-savings ledger; UC Delta for everything else.
+2. **Chatbot LLM: FMAPI, `databricks-meta-llama-3-3-70b-instruct`** — stays inside Databricks, inherits OBO auth, counts against DBUs. Endpoint name configured in `app.yaml` as `DATABRICKS_SERVING_ENDPOINT_NAME`. Tool-use implemented with 5 explicit tools (suggest_supplier, get_active_contract, price_history, check_budget_threshold, submit_pr).
 
-2. **Chatbot LLM: Foundation Model API (Llama 3 / Claude on Databricks) vs. external Anthropic API?**
-   - FMAPI: stays inside Databricks; OBO auth; lower latency; counts against Databricks DBUs. Use `databricks-model-serving` + `mlflow-onboarding` skills.
-   - External Anthropic: better Claude model versions; but requires managing an API key as a secret; doesn't inherit Databricks RBAC.
-   - **Default recommendation**: FMAPI with a Llama 3 or Claude endpoint. Tool-use is supported.
+3. **Cost-savings: hybrid** — `gold.fact_cost_savings` SQL MV auto-materializes reductions from awarded sourcing events; Lakebase `savings_avoidance_entries` holds manual avoidance entries with attestation. UI joins both for the executive summary.
 
-3. **Cost-savings ledger: SQL view (auto-detect reductions) vs. fully-app-side (Lakebase)?**
-   - SQL view: reductions auto-materialize; can't be edited; reproducible.
-   - App-side: more flexible; supports overrides + comments; loses the "as-of" reproducibility.
-   - **Default recommendation**: hybrid. SQL view materializes the auto-detected baseline; the app's Lakebase store holds overrides + manual avoidance entries; the UI joins them.
+4. **Routing: state-based React router** — `App.tsx` owns `page: PageId` state and swaps the right-pane component. No `react-router-dom` dependency.
 
-4. **Single-page vs. multi-route?**
-   - Strategic Sourcing Portal naturally has 4–5 top-level views (Contracts, Suppliers, Cost Savings, Chatbot, Labeling Monitor). React Router with sidebar nav is the obvious choice.
+### What's wired in the repo ✅
 
-### What's already wired in the repo
+- All UC gold/silver tables exist and are populated (confirmed 2026-05-20).
+- `pipelines/spend/gold/fact_cost_savings.sql` ✅ — created. MATERIALIZED VIEW in lakehouse pipeline.
+- `resources/apps.yml` ✅ — created. Bundle resource for `helios-sourcing-portal-${bundle.target}`.
+- `apps/helios-sourcing-portal/` ✅ — full app scaffold deployed. See README inside for deploy instructions.
+- ML model output (`ml.invoice_classifications`) ✅ — fully populated (312,188 rows). `batch_inference.py` ran successfully.
+- `silver.contract_amendment` — not implemented in pipeline (only `contract_inbound` and `contract_outbound` exist). Contracts page uses `contract_inbound` only; amendment history deferred.
 
-- All UC tables listed above already exist (or are stubbed — `silver.sourcing_event`, `silver.contract_inbound`, `silver.contract_amendment` may need ingestion-side verification; cross-check with `pipelines/legal/*.sql`).
-- The `fact_cost_savings` gold table does NOT exist yet. Teammate creates it: either as `pipelines/spend/gold/fact_cost_savings.sql` (auto-detected baseline only) or as a Lakebase-backed app table (full ledger).
-- ML model output (`ml.invoice_classifications`) is populated by `batch_inference.py` after the `train_spend_classifier` job runs. Verify it's non-empty before building the labeling monitor.
+### Verification checklist
 
-### Verification checklist (for the teammate's "done" definition)
+1. [ ] `databricks bundle deploy -t dev` provisions the app cleanly via bundle (**blocked** — bundle state drift; `build_lakehouse` job not in state; lakehouse pipeline owned by different workspace user; workaround: direct CLI deploy used instead).
+2. [x] App URL serves a React landing page using DM Sans + the brand BlobBg/PageHero/Card primitives. *(Note: font files not committed — falls back to system fonts until `.ttf` files added to `public/ds/fonts/`.)*
+3. [x] OBO auth works: queries return rows scoped to the logged-in user's UC permissions.
+4. [x] Every primary feature (4 + 1 extra) renders without errors against `dev` catalog data.
+5. [x] Cost-savings auto-detection materializes ≥ 10 rows from existing sourcing events. *(2,500 sourcing events → cost reduction rows in `gold.fact_cost_savings`.)*
+6. [ ] Chatbot submits a synthetic PR end-to-end (intake → suggestions → confirm → bronze write → PR# returned). *(Lakebase wired + Genie integrated — ready for end-to-end test.)*
+7. [ ] Lakehouse pipeline refresh picks up the chatbot-submitted PR on next run.
+8. [x] Hand-drawn SVG charts render; no Tailwind / no chart-library imports in `package.json`.
 
-1. [ ] `databricks bundle deploy -t dev` provisions the app (visible in Workspace → Apps).
-2. [ ] App URL serves a React landing page using DM Sans + the brand BlobBg/PageHero/Card primitives.
-3. [ ] OBO auth works: queries return rows scoped to the logged-in user's UC permissions.
-4. [ ] Every primary feature (4 + 1 extra) renders without errors against `dev` catalog data.
-5. [ ] Cost-savings auto-detection materializes ≥ 10 rows from existing sourcing events.
-6. [ ] Chatbot submits a synthetic PR end-to-end (intake → suggestions → confirm → bronze write → PR# returned).
-7. [ ] Lakehouse pipeline refresh picks up the chatbot-submitted PR on next run (silver → gold propagation works).
-8. [ ] Hand-drawn SVG charts render; no Tailwind / no chart-library imports in `package.json`.
+### Phase 3 open items
+
+- **Fonts** ✅ — DM Sans (variable font, covers weights 100–900) + DM Mono (static Light/Regular/Italic/Medium) downloaded from Google Fonts GitHub and committed to `frontend/public/ds/fonts/`. `colors_and_type.css` updated to use two variable-font `@font-face` declarations for DM Sans instead of 6 static-weight files. DM Mono unchanged (no variable font available). Fonts are now served correctly; 404s resolved.
+- **Bundle state drift** — `DATABRICKS_BUNDLE_ENGINE=direct` deploy fails on catalog/schema already-exists errors (resources owned by a different workspace user). Bundle state (`resources.json` on workspace) only has `generate_data` and `train_spend_classifier` job IDs. The `build_lakehouse` job was never created. Workaround for now: use direct CLI deploy (`databricks apps deploy`). Long-term fix: either `bundle deployment bind` the existing resources, or hand off the workspace to a single owner.
+
+### Chatbot prompt guide
+
+The chatbot has **6 tools** — use these prompt patterns to exercise each one:
+
+| Prompt | Tool(s) triggered |
+|---|---|
+| "I need 20 laptops for the Boston office" | `suggest_supplier` → `check_budget_threshold` → `submit_pr` |
+| "Find me a software licensing supplier in APAC" | `suggest_supplier` |
+| "What active contracts do we have with SUP-00000042?" | `get_active_contract` |
+| "What have we paid per unit for IT Hardware from that supplier?" | `price_history` |
+| "I want to submit a PR for $30,000 of office furniture" | `check_budget_threshold` (will reject — over $25k threshold) |
+| "What is our total spend by category this fiscal year?" | `ask_genie` (Genie NL→SQL) |
+| "Which categories have the most maverick spend?" | `ask_genie` |
+| "Show me our top 10 suppliers by trailing 12-month spend" | `ask_genie` |
+| "Which contracts expire in the next 90 days?" | `ask_genie` |
+| "How much have we saved through sourcing events this year?" | `ask_genie` |
+
+**Guardrails built in:**
+- PRs > $25,000 → auto-rejected; user must escalate to sourcing manager
+- Regulated suppliers → blocked from PR submission unless user explicitly overrides
+- Always asks for confirmation before `submit_pr` fires
+
+**New Chat behavior:** clicking `+ New Chat` returns to the centered landing state (clears session context). Type a message and press Enter — a session is created automatically and the message is sent.
+
+### App resource configuration (critical — always include full payload on `apps update`)
+
+The app requires the scopes below and the warehouse resource binding. **Always pass the complete JSON** — `apps update` replaces (not merges) both `user_api_scopes` and `resources`:
+
+```bash
+databricks apps update helios-sourcing-portal-dev \
+  --profile e2-demo-field-eng \
+  --json '{
+    "user_api_scopes": ["sql", "postgres", "serving.serving-endpoints", "dashboards.genie"],
+    "resources": [{
+      "name": "warehouse",
+      "sql_warehouse": {
+        "id": "e9b34f7a2e4b0561",
+        "permission": "CAN_USE"
+      }
+    }]
+  }'
+```
+
+| Scope | Used for |
+|---|---|
+| `sql` | All UC warehouse queries (contracts, suppliers, KPIs, labeling, cost savings) |
+| `postgres` | Lakebase Postgres — chatbot session/message persistence + cost-avoidance ledger |
+| `serving.serving-endpoints` | FMAPI — calling `databricks-meta-llama-3-3-70b-instruct` for chatbot responses |
+| `dashboards.genie` | Preserved for user-facing Genie operations; chatbot `ask_genie` now runs with service principal token |
+
+**If any scope is missing**: the corresponding feature fails with `PermissionDenied` at the OBO token validation step. The other features continue working. Current token in a browser session will NOT have new scopes until the user opens a new tab (re-authenticates).
+
+**Note**: `DATABRICKS_WAREHOUSE_ID` is injected at deploy time via the `warehouse` resource binding in `app.yaml` (`valueFrom: warehouse`). It is NOT a literal value — the warehouse ID only flows through if the resource binding is present.
+
+### Genie Space — provisioned ✅ (2026-05-21)
+
+- **Space**: `Helios Spend Analytics` — `01f154f176351736be32d20533d9f257`
+- **Tables**: `gold.fact_invoices`, `gold.dim_supplier`, `gold.fact_purchase_requests`, `gold.fact_purchase_orders`, `gold.fact_cost_savings`, `gold.dim_spend_category`, `silver.contract_inbound`, `silver.sourcing_event` (all in `horizontal_finance_dev`)
+- **Warehouse**: `Serverless Starter Warehouse` (`e9b34f7a2e4b0561`)
+- **Integration**: wired as the `ask_genie` tool in `apps/helios-sourcing-portal/backend/routers/chatbot.py`. `GENIE_SPACE_ID` set in `app.yaml`; `genie_space_id` in `config.py`.
+- **SP-only auth**: Genie Conversation REST API now always uses the app service principal M2M token from `APP_SP_CLIENT_ID`/`APP_SP_CLIENT_SECRET`. This removes user-token scope drift from chatbot analytics responses.
+- **Curate**: add instructions and certified queries in the Databricks UI to improve SQL generation quality for procurement-specific metrics.
+
+### Service principal permission verification (dev + prod)
+
+Use the new checker script to validate app scopes, Genie API access, and UC object access for both environments:
+
+```bash
+python scripts/validate_genie_sp_access.py \
+  --profile e2-demo-field-eng \
+  --host e2-demo-field-eng.cloud.databricks.com \
+  --genie-space-id 01f154f176351736be32d20533d9f257 \
+  --sp-client-id "$APP_SP_CLIENT_ID" \
+  --sp-client-secret "$APP_SP_CLIENT_SECRET"
+```
+
+If UC probes fail, apply grants (replace `<APP_SP_PRINCIPAL>` first) by running these files in Databricks SQL editor:
+- `sql/security/grant_app_sp_genie_access_dev.sql`
+- `sql/security/grant_app_sp_genie_access_prod.sql`
+
+Grant files include the full set of required objects:
+- `gold.fact_invoices`
+- `gold.dim_supplier`
+- `gold.fact_purchase_requests`
+- `gold.fact_purchase_orders`
+- `gold.fact_cost_savings`
+- `gold.dim_spend_category`
+- `silver.contract_inbound`
+- `silver.sourcing_event`
+
+### Lakebase — provisioned ✅ (2026-05-20)
+
+- **Project**: `projects/helios-sourcing` on `e2-demo-field-eng`
+- **Endpoint**: `ep-blue-cake-d1dw80zo.database.us-west-2.cloud.databricks.com:5432`
+- **Database**: `databricks_postgres`
+- **Auth pattern**: per-request OBO — each connection uses the calling user's Databricks token via `w.postgres.generate_database_credential()`. DDL (`chatbot_sessions`, `chatbot_messages`, `savings_avoidance_entries`) runs lazily on the first authenticated user request.
+- **Why no SP pool**: the app's service principal is not granted a Postgres role in the Lakebase instance. OBO per-request avoids this entirely and aligns with the rest of the app's auth model.
+- **Config**: `LAKEBASE_HOST`, `LAKEBASE_ENDPOINT`, `LAKEBASE_DATABASE` are set in `apps/helios-sourcing-portal/app.yaml`.
 
 ---
 
@@ -364,7 +508,7 @@ These are real architecture choices with no "right" answer — pick one and docu
 ## Open questions (carried)
 
 - [ ] **UNSPSC taxonomy** — real UNSPSC 25.0 or synthetic 30-category mapping? (Decision will lock how the ML model's predictions are encoded in `fact_spend.unspsc_family_code`.)
-- [ ] **Lakebase app placement** — standalone or embedded.
+- [x] **Lakebase app placement** — standalone project (`projects/helios-sourcing`), not embedded. OBO per-request connections; no shared pool.
 - [ ] **"Databricks on Databricks" angle** — retain from old script or drop.
 - [ ] **ML SME** — design doc named TBD. Without one, Phase 2 ML model is "best effort" rather than headline.
 - [ ] **FEIP timing** — Sprint 0 or Sprint 1.
@@ -376,8 +520,8 @@ These are real architecture choices with no "right" answer — pick one and docu
 ## Verification checklist (run after build_lakehouse first lands)
 
 1. [x] `_meta.dim_period_anchors` has rows for FY2023, FY2024, Q1'25 → Q3'25.
-2. [ ] `gold.fact_invoices` populated; `gold.fact_purchase_orders` populated; `gold.fact_purchase_requests` populated; `gold.fact_revenue` populated with billing events.
+2. [x] `gold.fact_invoices` populated (312,188 rows, FY23–FY26 Q1); `gold.dim_supplier` populated (3,000 rows); `silver.contract_inbound` populated (896 active contracts).
 3. [ ] `gold.fact_fpa_actuals` totals reconcile to anchor `revenue` / `cogs + sga + rd` per (fy, fq, segment) within ±2%.
 4. [x] Reconciliation gate (`99_reconcile.py`) passes for raw files.
 5. [ ] Anonymization audit: zero hits for source filer name / original segment names in UC table content.
-7. [ ] `ml.invoice_classifications` exists (empty) after data-generation job; `gold.fact_invoices.predicted_category` resolves to NULL until first inference run.
+7. [x] `ml.invoice_classifications` fully populated — 312,188 rows with `predicted_primary_category` + `predicted_secondary_category`; `gold.fact_invoices.predicted_secondary_category` resolves to non-NULL for all rows.

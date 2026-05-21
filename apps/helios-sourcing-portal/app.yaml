@@ -1,0 +1,48 @@
+# Databricks App runtime configuration.
+# All env vars MUST live here — the bundle's resources/apps.yml config.env
+# block is silently ignored at deploy time.
+# `valueFrom:` pulls the live resource IDs that DAB substitutes at deploy.
+# `value:` are stable workspace literals.
+
+command:
+  - "uvicorn"
+  - "backend.main:app"
+  - "--host"
+  - "0.0.0.0"
+  - "--port"
+  - "$DATABRICKS_APP_PORT"
+
+env:
+  # Resource bindings — DAB substitutes the live warehouse ID at deploy time.
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: warehouse
+
+  # Lakebase Autoscaling — project helios-sourcing, provisioned 2026-05-20.
+  - name: LAKEBASE_HOST
+    value: "ep-blue-cake-d1dw80zo.database.us-west-2.cloud.databricks.com"
+  - name: LAKEBASE_PORT
+    value: "5432"
+  - name: LAKEBASE_DATABASE
+    value: "databricks_postgres"
+  - name: LAKEBASE_ENDPOINT
+    value: "projects/helios-sourcing/branches/production/endpoints/primary"
+
+  # Helios Spend Analytics Genie Space — used by the ask_genie chatbot tool.
+  - name: GENIE_SPACE_ID
+    value: "01f154f176351736be32d20533d9f257"
+
+  # FMAPI serving endpoint for the procurement chatbot.
+  # Use a Llama 3.3 70B or Claude endpoint registered in Model Serving.
+  - name: DATABRICKS_SERVING_ENDPOINT_NAME
+    value: "databricks-meta-llama-3-3-70b-instruct"
+
+  # Unity Catalog coordinates — stable per workspace/target.
+  # Dev target uses horizontal_finance_dev; prod uses horizontal_finance.
+  - name: DATABRICKS_CATALOG
+    value: "horizontal_finance_dev"
+  - name: DATABRICKS_SILVER_SCHEMA
+    value: "silver"
+  - name: DATABRICKS_GOLD_SCHEMA
+    value: "gold"
+  - name: DATABRICKS_ML_SCHEMA
+    value: "ml"
