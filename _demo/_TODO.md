@@ -6,7 +6,7 @@
 
 ---
 
-## 📍 Status snapshot (as of 2026-05-20)
+## 📍 Status snapshot (as of 2026-05-27)
 
 **Working end-to-end:**
 - ✅ DAB scaffold + direct deployment engine on `mode: production` (both dev + prod) with `${bundle.target}` suffix on job/pipeline names
@@ -27,15 +27,21 @@
 - ✅ **`gold.fact_invoices` confirmed populated** — 312,188 rows, FY23–FY26 Q1
 - ✅ **`ml.invoice_classifications` fully populated** — all 312,188 invoice lines classified with `predicted_primary_category` + `predicted_secondary_category`
 
-**Phase 3 (Apps) is now live and all pages verified with real data:**
+**Phase 3 (Apps) is now live + defensibility-tightened + drilldown-rich (current deployment `01f159dbb80716f68573ce2a410bdfa0`):**
 - ✅ `pipelines/spend/gold/fact_cost_savings.sql` — gold table created; 1,899 rows, $47.6M savings across 30 categories
 - ✅ `resources/pipeline.yml` updated to include `fact_cost_savings.sql`
 - ✅ `databricks.yml` updated: `warehouse_id` variable + `sync.include` for frontend dist
 - ✅ `resources/apps.yml` — new bundle resource, `helios-sourcing-portal-${bundle.target}`, warehouse OBO binding
 - ✅ `apps/helios-sourcing-portal/` — full FastAPI + Vite/React/TS app scaffold (50+ files)
 - ✅ App live at `https://helios-sourcing-portal-dev-1444828305810485.aws.databricksapps.com`
-- ✅ All 5 features rendering with real data: Contract Burn-Down (423 active), Supplier Performance (3,000 suppliers), Cost Savings ($47.6M), Procurement Chatbot, Spend Labeling Monitor (100% coverage)
-- ✅ Lakebase `helios-sourcing` provisioned; `postgres` scope added to app; Lakebase DDL runs on first user request
+- ✅ All 5 features rendering with real data: Contract Burn-Down (250 active **after date validity fix** — was 423 before excluding 173 calendar-expired rows), Supplier Performance (3,000 suppliers), Cost Savings ($47.6M reductions + manual avoidance approval workflow), Procurement Chatbot (7 tools incl. `get_remaining_budget` + `ask_genie`), Spend Labeling Monitor (100% coverage)
+- ✅ Home KPIs (verified live against dev warehouse): **Total Spend $2.91B** (T12M paid only), **Managed Spend 99.6%** (PO-matched or active-contract-matched), **Contract Coverage 8.9%** (paid spend under active contract), **On-Time Payment %** (spend-weighted)
+- ✅ Contract drilldown panel — tabbed Summary / Linked Invoices / Linked POs, all contract-scoped (supplier + effective window + paid)
+- ✅ Supplier scorecard drilldown panel — Summary / Contracts / 8-quarter Spend Trend, paid-only T12M throughout
+- ✅ Cost avoidance approval workflow — Approve/Reject endpoints, segment + supplier autocomplete on form, summary excludes pending entries with separate `pending_avoidance_usd` field
+- ✅ Structured metric tooltips — portal-based popover with viewport-edge auto-flip, 35+ entries in central `metricDefinitions.ts` catalog, wired across every KPI tile / column header / status pill on Home, CostSavings, Contracts, Suppliers, LabelingMonitor
+- ✅ Tables horizontally scrollable on narrow viewports (`min-width: 100%` + `overflowX: auto`); drilldown panel sub-tables intentionally kept compact in their 400px panels
+- ✅ Lakebase `helios-sourcing` provisioned; `postgres` scope added to app; Lakebase DDL runs on first user request (now includes `approved_by`, `approved_at`, `rejected_at`, `rejection_reason` columns on `savings_avoidance_entries`)
 - ✅ OBO auth; SP env-var conflicts resolved (`DATABRICKS_CLIENT_ID`/`SECRET` cleared at startup in `main.py`)
 
 **Latest session (2026-05-21) — Chatbot hardening + Genie SQL/feedback:**
@@ -44,6 +50,75 @@
 - **SP UC + Genie permissions** — New app SP granted: `USE_CATALOG` + `USE_SCHEMA` (gold, silver) + `SELECT` on 11 tables in `horizontal_finance_dev`; `CAN_EDIT` on Genie Space `01f154f176351736be32d20533d9f257`.
 - **Tool card collapsible args** — Chatbot tool cards now collapsed by default; `chev_r`/`chev_d` toggle reveals args JSON. `expandedTools` state resets per message.
 - **Genie SQL display + thumbs feedback** — `run_genie_query` now returns `conv_id`, `msg_id`, `space_id` alongside `sql` + `row_count`. Frontend parses `tool_result` SSE events for `ask_genie` and renders SQL block + 👍/👎 buttons inside expanded tool card. Thumbs call `POST /api/chat/genie-feedback` → `PUT /api/2.0/genie/…/feedback` (OBO token). Rating highlighted in lava on selection; "Feedback sent" confirmation shown.
+
+**Latest session (2026-05-27) — Procurement tightening + metric tooltips:**
+
+Two back-to-back passes on the app: backend metric defensibility / drilldown UX / savings approval workflow, then a structured-tooltip layer across every metric surface. All TypeScript clean, Vite production build green (266 modules, 272 kB / 81 kB gzip).
+
+*Priority 1 — Suspicious metric logic + query patterns (backend SQL/Python):*
+- **Paid-only spend filter** — every `fact_invoices` aggregate in `system.py`, `suppliers.py`, `contracts.py`, `chatbot.py` now adds `payment_status = 'PAID'`. Unpaid + past-due invoices no longer count as realized spend.
+- **Redefined `managed_spend_pct`** — was % of addressable with ML-predicted category (misleading "Managed Spend" label on Home); now = addressable paid spend with `source_pr_number IS NOT NULL` OR matched to an active contract for the same supplier inside the contract's effective window, divided by addressable paid spend. The old ML-coverage metric is surfaced separately as `classified_spend_pct` (Labeling page).
+- **Fixed `contract_coverage_pct`** — was multi-year contract commitments / T12M invoice spend (could exceed 100%). Now = T12M paid invoices matched to an active contract / T12M addressable paid spend, same window on both sides.
+- **Active contracts must be date-valid** — added `effective_date <= CURRENT_DATE() AND expiration_date >= CURRENT_DATE()` to "Active" predicates in `contracts.py` list, `renewals`, and `suppliers.py` scorecard contracts subquery. Status alone was admitting expired rows.
+- **Spend-weighted On-Time Payment %** — formula changed from `SUM(is_on_time)/COUNT(*)` to `SUM(amount WHERE is_on_time)/SUM(amount)` in both `system.py` and `suppliers.py`. Renamed to "On-Time Payment %" everywhere (was misread as supplier OTD/OTIF).
+- **T12M window aligned across scorecard columns** — `invoice_count`, `on_time_payment_pct`, `avg_dpo` were all-time while `trailing_12m_spend` was 365-day. All four now share the same predicate via new `_supplier_t12m_agg_sql()` CTE in `suppliers.py`.
+- **Measured maverick %** — replaced synthetic `dim_supplier.maverick_propensity` (random demo seed) with `measured_maverick_pct` = % of T12M paid spend NOT matched to an active contract for that supplier. Same observed-leakage signal Genie / sourcing managers will defend.
+- **`get_remaining_budget` chatbot tool** — `check_budget_threshold` was a static $25k rule pretending to be a budget check. Renamed to `check_sourcing_threshold` (honest about what it does); added a new `get_remaining_budget(segment_code, fiscal_year, fiscal_quarter)` tool that queries `fact_fpa_budgets` (EXPENSE) minus `fact_invoices` paid spend. `suggest_supplier` now ranks by measured maverick (no more synthetic propensity); `price_history` uses quantity-weighted unit price (was simple AVG).
+- **Centralized T12M helper** — `db.t12m_supplier_spend_sql()` returns the canonical T12M paid-spend subquery; six duplicated copies across four routers now reference one source. `PAID_PREDICATE` constant.
+
+*Priority 2 — Contract drilldown:*
+- **Burn-down is now contract-scoped** — was summing ALL invoices for the contract's supplier (wildly overstated utilization for suppliers with multiple contracts). Now joins `fact_invoices` by `supplier_id` AND `invoice_date BETWEEN c.effective_date AND c.expiration_date` AND `payment_status = 'PAID'`. List-view `pct_consumed` recomputed the same way via `_contract_scoped_consumption_sql()` so the chart and table agree.
+- **New endpoints**: `GET /api/contracts/{id}/invoices` and `GET /api/contracts/{id}/purchase_orders`, both reusing the contract-scope filter (POs gated on `po_created_date BETWEEN effective_date AND expiration_date`).
+- **Drilldown panel now tabbed** — existing 400px right-side panel in `Contracts.tsx` gains a `SegSelect` with **Summary | Invoices | POs**, lazy-loaded. Adds a metadata grid (supplier / type / region / expires / committed / consumed) and a close button. New local `DrilldownTable` component renders the tab tables with sticky headers.
+
+*Priority 3 — Supplier scorecard drilldown:*
+- **Wired the existing `/api/suppliers/{id}/scorecard` endpoint** (was defined and unused). Row click on scorecard opens an inline 400px panel mirroring the Contracts pattern: header with name/region/category + 6-cell `PanelStat` KPI strip (T12M Spend, Invoices, On-Time %, Avg DPO, Maverick %, Terms) + `SegSelect` tabs **Summary | Contracts | Trend**.
+- **Tightened the scorecard query** — header/category-breakdown paid-only + T12M; contracts subquery filters to active + currently effective; new `spend_trend` field returns the last 8 quarters of paid spend, ordered chronologically for the `SparklineChart`.
+
+*Priority 4 — Normalized cost avoidance logging:*
+- **Lakebase DDL extended idempotently** — `savings_avoidance_entries` gains `approved_by`, `approved_at`, `rejected_at`, `rejection_reason` via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+- **Approval endpoints** — `POST /api/cost_savings/avoidance/{id}/approve` and `/reject`; reject takes `{ reason }` body and persists it. Sets `approved_by` = caller email.
+- **Summary fixed** — `/api/cost_savings/summary` now filters avoidance to `approved = TRUE` for headline totals; surfaces `pending_avoidance_usd` as a separate field. Switched from a left-join-over-reductions loop to a full-outer join over `(segment, fiscal_year, fiscal_quarter)` keys so quarters with avoidance-only entries appear.
+- **Form gains Segment + Supplier autocomplete** — "Log Cost Avoidance" modal in `CostSavings.tsx` now collects `segment_code` (HAD/HPA/HSB/HET/CORP dropdown) and supplier (autocomplete against loaded suppliers list; selecting also defaults `category_primary`). Avoidance table gains Approve/Reject action buttons on non-approved rows; reject opens a tiny reason prompt. KPI strip "Total Avoidance" subtitle shows `approved · pending $X` when there's pending volume.
+- **Honesty fix**: replaced every `SELECT * FROM savings_avoidance_entries` with explicit `_AVOIDANCE_COLS` so the API contract is decoupled from table shape.
+
+*Metric tooltips (live):*
+- **New `MetricTooltip` component** ([apps/helios-sourcing-portal/frontend/src/components/MetricTooltip.tsx](apps/helios-sourcing-portal/frontend/src/components/MetricTooltip.tsx)) — CSS-only `:hover` + `:focus-within` popover with default circled-i glyph trigger. Body renders structured **Period / Definition / Formula / Filters**. Accepts `children` for wrapping an existing element (Pill, status text, strip dot) so it never adds extra glyphs to a clickable surface. `pointer-events: none` on the popover so it never steals clicks from Pills underneath.
+- **Single catalog** ([metricDefinitions.ts](apps/helios-sourcing-portal/frontend/src/components/metricDefinitions.ts)) — `METRICS` object with 35+ stable keys covering KPIs, column metrics, status pills (approved / pending / rejected), event_type pills (auction / RFP / RFQ), and labeling metrics. The catalog is the single artifact to edit before a demo to refine wording; page components never inline metric copy. `eventTypeMetric()` helper resolves the event-type string dynamically.
+- **`HeaderLabel` helper** ([HeaderLabel.tsx](apps/helios-sourcing-portal/frontend/src/components/HeaderLabel.tsx)) — tiny wrapper used by every table `<th>` so the label + optional info icon align consistently.
+- **`StatTile` extended** with an optional `tooltip?: MetricTooltipContent` prop. Zero layout shift when omitted.
+- **Wired surfaces**: Home (4 KPIs); CostSavings (3 KPIs, Summary 5 metric headers, Reductions 4 metric headers, event_type Pill, Avoidance status cell + Amount header); Contracts (list Committed/Consumed/Expires headers, contract_type Pill, drilldown meta block, burn-down chart title, Linked Invoices payment_status header); Suppliers (scorecard headers, Maverick strip dot — replaces the prior native `title=`, Renegotiation Targets headers, drilldown `PanelStat` extended with tooltip prop on all 6 cells); LabelingMonitor (4 KPIs, coverage table headers, confidence histogram title resolved by tier, disagreements Predicted/Confidence headers, model history holdout/maverick/parent accuracy headers).
+- **Out of scope (explicit per general app guidance)**: no CSV/Excel export, no new screens, no URL routing, no external tooltip library, no Chatbot page tooltips (no metric tiles there), no backend changes for the tooltip work itself.
+
+**Latest session (2026-05-27 PM) — Bug fixes from live testing:**
+
+Five issues surfaced during the post-deploy smoke test (one user-reported tooltip clipping + horizontal scroll, plus a cascade of four backend bugs the morning pass left behind). Fixed through four sequential redeploys, final deployment ID `01f159dbb80716f68573ce2a410bdfa0` (14:53:16Z, healthy uvicorn startup).
+
+*Issue 1 — Tooltip clipping on rightmost columns.* The CSS-only `:hover` + `:focus-within` `MetricTooltip` was being clipped by the table's `overflow-x: auto` wrapper, the page's main scroll container, and the 400px drilldown panels. Rightmost-column tooltips were invisible. Fix: rewrote [MetricTooltip.tsx](apps/helios-sourcing-portal/frontend/src/components/MetricTooltip.tsx) to use React state + `useRef` + `createPortal(document.body)` with `position: fixed` at coordinates computed from `getBoundingClientRect()`. Auto-flips right-aligned when near the viewport right edge, auto-flips above when near the bottom. Escapes EVERY ancestor overflow context. Public API unchanged; all existing call sites kept working.
+
+*Issue 2 — Column values not triggering horizontal scroll.* Tables used `<table style={{ width: "100%" }}>`, force-fitting their container and compressing columns instead of growing. The existing `overflowX: "auto"` wrappers never triggered. Fix: changed `width: "100%"` to `min-width: "100%"` on all main list tables across [Contracts.tsx](apps/helios-sourcing-portal/frontend/src/pages/Contracts.tsx), [Suppliers.tsx](apps/helios-sourcing-portal/frontend/src/pages/Suppliers.tsx), [CostSavings.tsx](apps/helios-sourcing-portal/frontend/src/pages/CostSavings.tsx), [LabelingMonitor.tsx](apps/helios-sourcing-portal/frontend/src/pages/LabelingMonitor.tsx). Also wrapped the CostSavings Avoidance table + all 3 LabelingMonitor tables in `<div style={{ overflowX: "auto" }}>` (they were missing it). The Contracts and Suppliers drilldown-panel sub-tables intentionally kept `width: 100%` since they live in 400px panels.
+
+*Issue 3 — Contract Burn-Down panel stuck on "Loading burn-down…" indefinitely.* Two stacked latent bugs in the contract-drilldown endpoints (added in the procurement-tightening pass):
+  1. **Date parameter binding**: `contract_burn_down`, `contract_invoices`, `contract_purchase_orders` all called `fetch_one()` to grab the contract's `effective_date` + `expiration_date`, then bound them as positional `?` parameters in a second query. `datetime.date` objects don't bind reliably through databricks-sql-connector's qmark interface — the second query threw on prepare.
+  2. **Invalid `MOD` operator syntax**: `CONCAT('FY', fiscal_year MOD 100, ' Q', fiscal_quarter)` was using MySQL-style `x MOD y` which Databricks SQL doesn't accept. This bug existed in the original burn_down code too and would have hit users from day one if the date-binding bug hadn't masked it.
+
+  Fix: rewrote all three endpoints in [contracts.py](apps/helios-sourcing-portal/backend/routers/contracts.py) to scope via a `WITH c AS (SELECT supplier_id, effective_date, expiration_date FROM silver.contract_inbound WHERE contract_workspace_id = ?)` CTE and JOIN on it. Only `contract_id` (string) and `limit` (int) are now bound as parameters. Also changed `fiscal_year MOD 100` to `fiscal_year % 100`. SQL spot-check against CW-02000851 (`SUPP-1000234`, multi-contract supplier) returns the expected `$653.0k` cumulative paid spend across FY25 Q3 → FY26 Q2.
+
+  Frontend: added `burnDownError` state in [Contracts.tsx](apps/helios-sourcing-portal/frontend/src/pages/Contracts.tsx) and three render branches (error / empty-window / loaded) so future fetch failures show "Failed to load burn-down: {message}" in red instead of looking like infinite loading. Added `console.error(...)` to all three drilldown `.catch` handlers (burn-down, invoices, POs) so silent 500s surface in DevTools.
+
+*Issue 4 — Two MORE stacked bugs in the same endpoints surfaced once the new error UI exposed them (deployment `01f159daec0c156fbc212171ffbe3d30`):*
+  1. **`TypeError: unsupported operand type(s) for /: 'float' and 'decimal.Decimal'`** at contracts.py line 230 in `contract_burn_down`. `contract_inbound.total_committed_spend` is `DECIMAL(18,2)` — DBSQL-connector returns it as `decimal.Decimal`, but `cumulative_spend` was already coerced to `float`, so `cum / committed` blew up. Fix: coerce `committed = float(header.get("total_committed_spend") or 0)` once before the loop.
+  2. **`fastapi.exceptions.ResponseValidationError: 73 validation errors`** on `contract_invoices`: `fact_invoices.invoice_line_id` is `BIGINT` in UC but `ContractInvoiceRow.invoice_line_id` is typed `str`. Fix: `CAST(i.invoice_line_id AS STRING) AS invoice_line_id` in the SELECT. The `labeling.disagreements` endpoint has the same model field but uses `response_model=list[dict]` so pydantic skips field validation there — fragile but currently working.
+
+  Verified post-fix with SDK statement-execution: invoices query returns `invoice_line_id STRING` correctly; types match the model. The app logs confirm fresh deploy started clean at 14:47:35Z.
+
+*Issue 5 — Home dashboard KPIs blank (Total Spend / Managed Spend / Contract Coverage / On-Time Payment all `…`).* `/api/kpis` was throwing `ServerOperationError: UNRESOLVED_COLUMN.WITH_SUGGESTION` on `source_pr_number`. The new `managed_spend_pct` formula in [system.py](apps/helios-sourcing-portal/backend/routers/system.py) assumed `fact_invoices.source_pr_number` existed; it does not. The actual schema has `po_matched_flag` (string 'Y'/'N', the explicit 3-way-match signal) and `source_po_header_id` (bigint) — but no PR field on the invoice grain (PR lives upstream on the PO header).
+
+  While re-running the formula against the warehouse, a second bug surfaced: the LEFT JOIN to `silver.contract_inbound` fans out when a supplier has multiple overlapping active contracts, double-counting invoice amounts and pushing percentages above 100% (test query returned 100.4%). Same bug was hiding in `contract_coverage_pct` which used `JOIN` instead of `LEFT JOIN` — still fans out.
+
+  Fix: rewrote both `managed_spend_pct` (now uses `po_matched_flag = 'Y' OR EXISTS (...)`) and `contract_coverage_pct` (`SUM(CASE WHEN EXISTS (...) THEN amount ELSE 0 END)`) to use `EXISTS` for the contract check, which gives a true row-level boolean and never fans out. Updated [metricDefinitions.ts](apps/helios-sourcing-portal/frontend/src/components/metricDefinitions.ts) and [Home.tsx](apps/helios-sourcing-portal/frontend/src/pages/Home.tsx) KPI subtitle ("PR + contract matched" -> "PO + contract matched") to match.
+
+  Verified against the warehouse: Managed Spend = **99.6%** (most invoices are PO-matched in this dataset), Contract Coverage = **8.9%** (only ~9% of paid addressable spend is from suppliers with an active SOW/Framework — the procurement opportunity story). Deployment `01f159dbb80716f68573ce2a410bdfa0` (live at 14:53:16Z).
 
 **Deploy commands (direct CLI — bundle update mask bug workaround):**
 ```bash
@@ -56,7 +131,7 @@ databricks apps deploy helios-sourcing-portal-dev \
 ```
 > Note: `bundle deploy` will error on catalog/pipeline/volume "already exists" — these are harmless. The app resource update also errors with "Invalid update mask" — ignore it; the file upload still succeeds. The `apps deploy` step is the actual redeploy.
 
-**Bugs fixed + features added in this session:**
+**Earlier bug fixes + features (pre-2026-05-21 session, retained for reference):**
 - SQL `MISSING_GROUP_BY` in KPI `contract_coverage_pct` query
 - `DECIMAL` columns from DBSQL serialized as strings → `.toFixed()` crash on Suppliers + Labeling Monitor pages (fixed with `Number()` coercion; `fmtPct`/`fmtDelta` hardened)
 - Contract type abbreviations (`SOW`, `PRICING_AGREEMENT`) didn't match actual data values (`Statement of Work`, `Framework`) — fixed in all 4 routers
@@ -71,10 +146,30 @@ databricks apps deploy helios-sourcing-portal-dev \
 
 **Next immediate steps (Phase 3 finalization):**
 1. ✅ ~~Provision Lakebase instance~~ — `helios-sourcing` project live; OBO auth wired; DDL runs on first user request
-2. Add DM Sans / DM Mono `.ttf` files to `apps/helios-sourcing-portal/frontend/public/ds/fonts/`, rebuild frontend, redeploy (fonts currently falling back to system fonts)
-3. End-to-end chatbot test: (a) ask an analytics question — verify `ask_genie` routes to Genie; (b) submit a PR — verify it lands in `bronze_ariba.EBAN_PR_LINE`
-4. Resolve bundle state drift (or accept direct CLI deploy as the workaround)
-5. Move to Phase 4 — demo script, pitch deck, dbdemos packaging
+2. ✅ ~~DM Sans / DM Mono fonts~~ — committed to `frontend/public/ds/fonts/`; variable-font `@font-face` declarations resolved 404s
+3. ✅ ~~Procurement tightening + metric tooltips~~ (2026-05-27 AM — backend defensibility, contract/supplier drilldowns, avoidance approval workflow, structured tooltips on every KPI/header/pill)
+4. ✅ ~~Live-testing bug fixes~~ (2026-05-27 PM — 5 issues across 4 redeploys: tooltip portal rewrite, table horizontal-scroll wiring, burn-down CTE refactor + `MOD` -> `%` SQL fix + frontend error/empty-state branches, `Decimal`/`float` arithmetic coercion + `invoice_line_id BIGINT->STRING` CAST, hallucinated `source_pr_number` -> `po_matched_flag` + JOIN-fanout -> EXISTS). Live deployment ID `01f159dbb80716f68573ce2a410bdfa0`.
+5. **End-to-end browser smoke pass against the live app** (anyone with access can run):
+   - (a) Home tiles populate with **Total Spend $2.91B**, **Managed Spend 99.6%**, **Contract Coverage 8.9%**, **On-Time Payment %** non-zero (these are the warehouse-verified values at deploy time).
+   - (b) Hover info icons on the rightmost column of every list table — popover should render fully inside the viewport, never clipped (the portal/position-fixed rewrite escapes table/page/panel overflow contexts).
+   - (c) Resize browser to ~900px — list tables should scroll horizontally instead of compressing columns.
+   - (d) Open Contracts -> click any contract -> Summary tab renders a real burn-down chart (e.g. `CW-02000851` shows $653k cumulative across FY25 Q3 -> FY26 Q2) OR shows the "No paid invoices in this contract's window yet" empty-state.
+   - (e) Open Suppliers -> Scorecard row-click opens the inline 400px panel with Summary / Contracts / Trend tabs.
+   - (f) Log avoidance -> Approve -> "Total Avoidance" KPI updates and "Pending: $X" sub-line decrements for that row.
+   - (g) Ask the chatbot "what's my remaining budget for HET in FY26 Q1?" and verify `get_remaining_budget` returns **Budget $188.77M / Paid $149.56M / Remaining $39.21M**.
+6. End-to-end chatbot test: (a) ask an analytics question — verify `ask_genie` routes to Genie; (b) submit a PR — verify it lands in `bronze_ariba.EBAN_PR_LINE`.
+7. Resolve bundle state drift (or accept direct CLI deploy as the workaround).
+8. Move to Phase 4 — demo script, pitch deck, dbdemos packaging.
+
+**New defensibility-related backlog items surfaced during this round:**
+
+The 2026-05-27 PM bug cascade revealed a clear pattern: every bug came from SQL/Python that wasn't validated against the live schema or runtime before deploy. Concrete process improvements to land before Phase 4:
+- **CI smoke endpoint check** — hit each `GET` endpoint after deploy via a small `pytest` (e.g. `pytest tests/smoke/test_endpoints.py --base-url $APP_URL --token $TOKEN`) that asserts HTTP 200 and minimal response shape. Would have caught the burn-down 500, the kpis 500, and the invoices ResponseValidationError in seconds instead of via user reports.
+- **Schema sentinel script** — `scripts/validate_router_columns.py` parses every router SQL string and asserts each referenced column exists in the warehouse via `DESCRIBE`. Catches `source_pr_number`-style hallucinations at lint time, not deploy time.
+- **DBSQL type-coercion helpers** — `db.iso_date(v)` for any future date params (avoid qmark binding of `datetime.date`), `db.to_float(v)` for any `decimal.Decimal` columns destined for arithmetic. Add a brief docstring at the top of `db.py` calling out the two known DBSQL <-> Python type gotchas.
+- **Pydantic model alignment audit** — every response_model field that's declared `str` should map to a column the SQL casts to STRING (or the model field should be `int | str`). Specifically: `DisagreementRow.invoice_line_id` is currently only safe because the labeling endpoint uses `response_model=list[dict]`; tighten the SQL or loosen the model.
+- **SQL operator-form audit** — grep routers for `MOD ` / `||` / `LIMIT` quirks; replace `x MOD y` with `MOD(x, y)` or `x % y`. Both of today's failed SQL queries had non-Databricks operator syntax that worked in other engines.
+- **JOIN-vs-EXISTS rule of thumb** — any subquery used purely as a "did this match?" boolean should be `EXISTS`, never `JOIN` / `LEFT JOIN`, to avoid row fanout from overlapping rows on the join side. The Managed Spend / Contract Coverage fix was a textbook case; the same pattern lives in any other "% of spend that has X" formula.
 
 ---
 
@@ -360,11 +455,11 @@ Implemented 2026-05-17. The supervised label is now a 2-tier taxonomy: 8 parent 
 
 ### Architecture decisions — locked ✅
 
-1. **App-side state: Lakebase Postgres** — chosen for chatbot history (`chatbot_sessions`, `chatbot_messages`) and manual avoidance ledger (`savings_avoidance_entries`). Tables created on startup via DDL in `apps/helios-sourcing-portal/backend/lakebase.py`. ⚠️ Not yet provisioned — `LAKEBASE_HOST` is blank in `app.yaml`.
+1. **App-side state: Lakebase Postgres** — chosen for chatbot history (`chatbot_sessions`, `chatbot_messages`) and manual avoidance ledger (`savings_avoidance_entries`). Tables created on startup via DDL in `apps/helios-sourcing-portal/backend/lakebase.py`. ✅ Provisioned 2026-05-20 (`projects/helios-sourcing`), per-request OBO auth wired, DDL runs lazily on first user request. Schema extended 2026-05-27 with `approved_by`, `approved_at`, `rejected_at`, `rejection_reason` (idempotent `ALTER ADD COLUMN IF NOT EXISTS`) for the avoidance approval workflow.
 
-2. **Chatbot LLM: FMAPI, `databricks-meta-llama-3-3-70b-instruct`** — stays inside Databricks, inherits OBO auth, counts against DBUs. Endpoint name configured in `app.yaml` as `DATABRICKS_SERVING_ENDPOINT_NAME`. Tool-use implemented with 5 explicit tools (suggest_supplier, get_active_contract, price_history, check_budget_threshold, submit_pr).
+2. **Chatbot LLM: FMAPI, `databricks-meta-llama-3-3-70b-instruct`** — stays inside Databricks, inherits OBO (or SP-only for Genie) auth, counts against DBUs. Endpoint name configured in `app.yaml` as `DATABRICKS_SERVING_ENDPOINT_NAME`. Tool-use implemented with **7 explicit tools** as of 2026-05-27: `suggest_supplier`, `get_active_contract`, `price_history`, `check_sourcing_threshold` (renamed from `check_budget_threshold`, honest about being a static $25k rule), `get_remaining_budget` (real `fact_fpa_budgets` lookup, COGS + SGA), `submit_pr`, `ask_genie` (deterministic-routing fallback for analytics prompts).
 
-3. **Cost-savings: hybrid** — `gold.fact_cost_savings` SQL MV auto-materializes reductions from awarded sourcing events; Lakebase `savings_avoidance_entries` holds manual avoidance entries with attestation. UI joins both for the executive summary.
+3. **Cost-savings: hybrid with approval workflow** — `gold.fact_cost_savings` SQL MV auto-materializes reductions from awarded sourcing events; Lakebase `savings_avoidance_entries` holds manual avoidance entries with attestation AND approval state (approved / pending / rejected). UI joins both for the executive summary; only `approved = TRUE` avoidance enters headline totals, `pending_avoidance_usd` is surfaced separately so reviewers see what's waiting.
 
 4. **Routing: state-based React router** — `App.tsx` owns `page: PageId` state and swaps the right-pane component. No `react-router-dom` dependency.
 
@@ -380,7 +475,7 @@ Implemented 2026-05-17. The supervised label is now a 2-tier taxonomy: 8 parent 
 ### Verification checklist
 
 1. [ ] `databricks bundle deploy -t dev` provisions the app cleanly via bundle (**blocked** — bundle state drift; `build_lakehouse` job not in state; lakehouse pipeline owned by different workspace user; workaround: direct CLI deploy used instead).
-2. [x] App URL serves a React landing page using DM Sans + the brand BlobBg/PageHero/Card primitives. *(Note: font files not committed — falls back to system fonts until `.ttf` files added to `public/ds/fonts/`.)*
+2. [x] App URL serves a React landing page using DM Sans + the brand BlobBg/PageHero/Card primitives. Fonts committed to `frontend/public/ds/fonts/`; serving correctly.
 3. [x] OBO auth works: queries return rows scoped to the logged-in user's UC permissions.
 4. [x] Every primary feature (4 + 1 extra) renders without errors against `dev` catalog data.
 5. [x] Cost-savings auto-detection materializes ≥ 10 rows from existing sourcing events. *(2,500 sourcing events → cost reduction rows in `gold.fact_cost_savings`.)*
@@ -395,15 +490,16 @@ Implemented 2026-05-17. The supervised label is now a 2-tier taxonomy: 8 parent 
 
 ### Chatbot prompt guide
 
-The chatbot has **6 tools** — use these prompt patterns to exercise each one:
+The chatbot has **7 tools** — use these prompt patterns to exercise each one:
 
 | Prompt | Tool(s) triggered |
 |---|---|
-| "I need 20 laptops for the Boston office" | `suggest_supplier` → `check_budget_threshold` → `submit_pr` |
-| "Find me a software licensing supplier in APAC" | `suggest_supplier` |
-| "What active contracts do we have with SUP-00000042?" | `get_active_contract` |
-| "What have we paid per unit for IT Hardware from that supplier?" | `price_history` |
-| "I want to submit a PR for $30,000 of office furniture" | `check_budget_threshold` (will reject — over $25k threshold) |
+| "I need 20 laptops for the Boston office" | `suggest_supplier` → `check_sourcing_threshold` → `submit_pr` |
+| "Find me a software licensing supplier in APAC" | `suggest_supplier` (filters on measured maverick % now, not synthetic propensity) |
+| "What active contracts do we have with SUPP-00000042?" | `get_active_contract` (filters to status=Active AND calendar-valid) |
+| "What have we paid per unit for IT Hardware from that supplier?" | `price_history` (quantity-weighted unit price, paid invoices only) |
+| "I want to submit a PR for $30,000 of office furniture" | `check_sourcing_threshold` (will flag — over $25k policy threshold) |
+| "What's my remaining budget for HET in FY26 Q1?" | `get_remaining_budget` (returns Budget $188.77M / Paid $149.56M / Remaining $39.21M) |
 | "What is our total spend by category this fiscal year?" | `ask_genie` (Genie NL→SQL) |
 | "Which categories have the most maverick spend?" | `ask_genie` |
 | "Show me our top 10 suppliers by trailing 12-month spend" | `ask_genie` |

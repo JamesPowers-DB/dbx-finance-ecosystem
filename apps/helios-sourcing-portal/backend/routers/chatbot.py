@@ -4,8 +4,11 @@ Tools the chatbot can call:
   1. suggest_supplier(category, segment, top_n)
   2. get_active_contract(supplier_id)
   3. price_history(supplier_id, category)
-  4. check_budget_threshold(amount, segment)
-  5. submit_pr(supplier_id, line_items)  — writes to bronze_ariba; ALWAYS requires confirmation
+  4. check_sourcing_threshold(amount) — static $25k sourcing-manager rule
+  5. get_remaining_budget(segment_code, fiscal_year, fiscal_quarter)
+       — real budget vs paid-spend lookup against fact_fpa_budgets
+  6. submit_pr(supplier_id, line_items) — writes to bronze_ariba; ALWAYS requires confirmation
+  7. ask_genie(question) — natural-language analytics via Genie
 
 PR submission guardrails:
   - Reject any total > $25,000 (sourcing-manager engagement threshold)
@@ -31,7 +34,7 @@ from pydantic import BaseModel
 
 from ..auth import CallerIdentity, caller_identity
 from ..config import get_settings
-from ..db import execute, fetch_all, fetch_one
+from ..db import execute, fetch_all, fetch_one, t12m_supplier_spend_sql
 from ..lakebase import db_conn
 from ..models import ChatMessage, ChatSession, ChatSessionCreate
 
@@ -47,7 +50,8 @@ You have access to these tools:
 - suggest_supplier: find candidate suppliers by category and segment
 - get_active_contract: check for active contracts with a supplier
 - price_history: review historical unit prices for a category/supplier
-- check_budget_threshold: verify if an amount needs sourcing-manager escalation
+- check_sourcing_threshold: verify if an amount needs sourcing-manager escalation (static $25k rule)
+- get_remaining_budget: look up the remaining FP&A budget for a segment/quarter (budget minus paid spend)
 - submit_pr: submit a purchase request (always confirm with the user first)
 - ask_genie: answer open-ended analytical questions about procurement spend, suppliers, contracts, or savings using natural language SQL (Helios Spend Analytics Genie Space)
 
@@ -55,6 +59,7 @@ Rules:
 - ALWAYS show a confirmation summary and ask the user to confirm before calling submit_pr.
 - NEVER submit a PR totaling more than $25,000 — tell the user they must escalate to a sourcing manager.
 - NEVER suggest regulated suppliers for negotiation targets.
+- When a buyer is sizing a PR against budget, prefer get_remaining_budget over check_sourcing_threshold — the former queries actual FP&A budget vs paid spend; the latter only enforces the static $25k policy threshold.
 - Keep responses concise. Use bullet points for supplier suggestions.
 - Use ask_genie for analytical questions like spend trends, rankings, breakdowns, or anything that requires querying data that isn't directly served by the other tools.
 - If you cannot find a relevant supplier or contract, say so clearly.
@@ -109,8 +114,8 @@ _TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "check_budget_threshold",
-            "description": "Check whether an amount exceeds the $25,000 sourcing-manager threshold.",
+            "name": "check_sourcing_threshold",
+            "description": "Check whether an amount exceeds the $25,000 sourcing-manager engagement threshold. This is a static policy rule, NOT a budget check. Use get_remaining_budget for actual budget capacity.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -118,6 +123,22 @@ _TOOLS = [
                     "segment": {"type": "string"},
                 },
                 "required": ["amount"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_remaining_budget",
+            "description": "Look up remaining FP&A budget for a segment and fiscal period. Returns budget_usd, paid_spend_usd, and remaining_usd from fact_fpa_budgets minus fact_invoices paid spend. Use this to size a PR against actual budget capacity.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "segment_code": {"type": "string", "description": "Helios segment code (HAD, HPA, HSB, HET, CORP)"},
+                    "fiscal_year": {"type": "integer"},
+                    "fiscal_quarter": {"type": "integer", "description": "1, 2, 3, or 4"},
+                },
+                "required": ["segment_code", "fiscal_year", "fiscal_quarter"],
             },
         },
     },
@@ -178,22 +199,40 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
             if segment:
                 seg_filter = "AND s.segment_affinity LIKE ?"
                 params.append(f"%{segment}%")
+            # Recommendation filter: prefer suppliers whose measured maverick %
+            # is < 15% (i.e. most of their spend is contract-matched). Suppliers
+            # with no T12M paid spend fall through with NULL maverick — keep
+            # them in the result set instead of excluding (NULL means "no
+            # observed spend yet", not "bad"), but rank them lower via
+            # NULLS LAST on trailing_12m_spend.
             rows = fetch_all(
                 caller,
                 f"""
                 SELECT s.supplier_id, s.supplier_name, s.payment_terms,
-                       s.maverick_propensity, s.region,
-                       agg.trailing_12m_spend
+                       s.region,
+                       agg.trailing_12m_spend,
+                       agg.measured_maverick_pct
                 FROM {s.gold}.dim_supplier s
                 LEFT JOIN (
-                    SELECT supplier_id, SUM(amount) AS trailing_12m_spend
-                    FROM {s.gold}.fact_invoices
-                    WHERE invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
-                    GROUP BY supplier_id
+                    SELECT
+                        i.supplier_id,
+                        SUM(i.amount) AS trailing_12m_spend,
+                        ROUND(100.0 * SUM(CASE WHEN NOT EXISTS (
+                            SELECT 1 FROM {s.silver}.contract_inbound c
+                            WHERE c.supplier_id = i.supplier_id
+                              AND c.status = 'Active'
+                              AND c.contract_type IN ('Statement of Work', 'Framework')
+                              AND i.invoice_date BETWEEN c.effective_date AND c.expiration_date
+                        ) THEN i.amount ELSE 0 END) / NULLIF(SUM(i.amount), 0), 1)
+                            AS measured_maverick_pct
+                    FROM {s.gold}.fact_invoices i
+                    WHERE i.invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
+                      AND i.payment_status = 'PAID'
+                    GROUP BY i.supplier_id
                 ) agg ON s.supplier_id = agg.supplier_id
                 WHERE (s.category_primary LIKE ? {seg_filter})
                   AND COALESCE(s.is_regulated_supplier, FALSE) = FALSE
-                  AND COALESCE(s.maverick_propensity, 1.0) < 0.15
+                  AND COALESCE(agg.measured_maverick_pct, 0.0) < 15.0
                 ORDER BY trailing_12m_spend DESC NULLS LAST
                 LIMIT ?
                 """,
@@ -213,6 +252,8 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                 WHERE supplier_id = ?
                   AND contract_type IN ('Statement of Work', 'Framework')
                   AND status = 'Active'
+                  AND effective_date <= CURRENT_DATE()
+                  AND expiration_date >= CURRENT_DATE()
                 ORDER BY expiration_date DESC
                 LIMIT 5
                 """,
@@ -223,15 +264,20 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
         elif name == "price_history":
             supplier_id = args["supplier_id"]
             category = args["category"]
+            # Quantity-weighted unit price; simple AVG ignores quantity mix
+            # (a single $10/unit line counts equal to a 1000-unit $50 line).
             rows = fetch_all(
                 caller,
                 f"""
                 SELECT fiscal_year, fiscal_quarter,
-                       ROUND(AVG(unit_price), 4) AS avg_unit_price,
-                       COUNT(*) AS line_count
+                       ROUND(SUM(unit_price * quantity) / NULLIF(SUM(quantity), 0), 4)
+                           AS qty_weighted_unit_price,
+                       SUM(quantity)                              AS total_quantity,
+                       COUNT(*)                                   AS line_count
                 FROM {s.gold}.fact_invoices
                 WHERE supplier_id = ?
                   AND true_category_secondary LIKE ?
+                  AND payment_status = 'PAID'
                 GROUP BY fiscal_year, fiscal_quarter
                 ORDER BY fiscal_year DESC, fiscal_quarter DESC
                 LIMIT 8
@@ -240,15 +286,65 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
             )
             return json.dumps(rows, default=str)
 
-        elif name == "check_budget_threshold":
+        elif name == "check_sourcing_threshold":
             amount = float(args["amount"])
             if amount > 25_000:
                 return json.dumps({
                     "exceeds_threshold": True,
                     "threshold": 25000,
+                    "rule": "policy",
                     "message": "Amount exceeds the $25,000 sourcing-manager threshold. This PR requires sourcing-manager approval before submission.",
                 })
-            return json.dumps({"exceeds_threshold": False, "threshold": 25000})
+            return json.dumps({"exceeds_threshold": False, "threshold": 25000, "rule": "policy"})
+
+        elif name == "get_remaining_budget":
+            segment_code = args["segment_code"]
+            fy = int(args["fiscal_year"])
+            fq = int(args["fiscal_quarter"])
+            # Compare planned operating-expense budget (COGS + SGA in the
+            # FP&A planning schema — there's no single 'EXPENSE' account_type)
+            # vs realized (paid) spend for the same segment/period. Returns
+            # the genuine remaining capacity — the previous
+            # check_budget_threshold tool only checked a hardcoded $25k
+            # policy rule and never queried budgets at all.
+            row = fetch_one(
+                caller,
+                f"""
+                WITH b AS (
+                    SELECT SUM(amount_usd) AS budget_usd
+                    FROM {s.gold}.fact_fpa_budgets
+                    WHERE segment_code = ?
+                      AND fiscal_year  = ?
+                      AND fiscal_quarter = ?
+                      AND account_type IN ('COGS', 'SGA')
+                ),
+                spent AS (
+                    SELECT SUM(amount) AS paid_spend_usd
+                    FROM {s.gold}.fact_invoices
+                    WHERE segment_code = ?
+                      AND fiscal_year  = ?
+                      AND fiscal_quarter = ?
+                      AND payment_status = 'PAID'
+                )
+                SELECT
+                    COALESCE(b.budget_usd, 0)       AS budget_usd,
+                    COALESCE(spent.paid_spend_usd, 0) AS paid_spend_usd,
+                    COALESCE(b.budget_usd, 0) - COALESCE(spent.paid_spend_usd, 0)
+                        AS remaining_usd
+                FROM b CROSS JOIN spent
+                """,
+                [segment_code, fy, fq, segment_code, fy, fq],
+            )
+            row = row or {}
+            return json.dumps({
+                "segment_code": segment_code,
+                "fiscal_year": fy,
+                "fiscal_quarter": fq,
+                "budget_usd": float(row.get("budget_usd") or 0),
+                "paid_spend_usd": float(row.get("paid_spend_usd") or 0),
+                "remaining_usd": float(row.get("remaining_usd") or 0),
+                "source": f"{s.gold}.fact_fpa_budgets (COGS+SGA) vs {s.gold}.fact_invoices (PAID)",
+            })
 
         elif name == "submit_pr":
             supplier_id = args["supplier_id"]

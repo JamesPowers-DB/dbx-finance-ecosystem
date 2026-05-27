@@ -4,6 +4,7 @@ import { PageHero } from "../components/layout/PageHero";
 import { Card } from "../components/layout/Card";
 import { AnimatedTileMark } from "../components/layout/AnimatedTileMark";
 import { StatTile } from "../components/StatTile";
+import { METRICS } from "../components/metricDefinitions";
 import { fmtUSD, fmtPct } from "../format";
 import type { KpiResponse } from "../types";
 
@@ -76,31 +77,39 @@ export function Home({ onNavigate }: HomeProps) {
           subtitle="Helios Industrial Group — procurement intelligence for sourcing managers."
         />
 
-        {/* KPI strip */}
+        {/* KPI strip — trailing 12 months, paid invoices only.
+            "Managed Spend" = addressable spend with a PR or active contract.
+            "Contract Coverage" = paid invoice spend matched to an active
+            contract / addressable spend (same period).
+            "On-Time Payment %" is spend-weighted. */}
         <div style={{ display: "flex", gap: "var(--space-4)", marginBottom: "var(--space-6)", flexWrap: "wrap" }}>
           <StatTile
             label="Total Spend"
             value={loading ? "…" : fmtUSD(kpis?.total_spend_usd, true)}
             accent="var(--db-lava-600)"
-            sub="trailing 12 months"
+            sub="trailing 12 months, paid"
+            tooltip={METRICS.totalSpend}
           />
           <StatTile
             label="Managed Spend"
             value={loading ? "…" : fmtPct(kpis?.managed_spend_pct)}
             accent="var(--db-green-700)"
-            sub="of addressable"
+            sub="PO + contract matched"
+            tooltip={METRICS.managedSpend}
           />
           <StatTile
             label="Contract Coverage"
             value={loading ? "…" : fmtPct(kpis?.contract_coverage_pct)}
             accent="var(--db-yellow-600)"
-            sub="spend under contract"
+            sub="paid spend under contract"
+            tooltip={METRICS.contractCoverage}
           />
           <StatTile
-            label="On-Time Payment"
+            label="On-Time Payment %"
             value={loading ? "…" : fmtPct(kpis?.on_time_payment_pct)}
             accent="var(--db-navy-800)"
-            sub="invoice lines"
+            sub="spend-weighted"
+            tooltip={METRICS.onTimePayment}
           />
         </div>
 

@@ -1,4 +1,5 @@
 import React from "react";
+import { MetricTooltip, type MetricTooltipContent } from "./MetricTooltip";
 
 interface StatTileProps {
   label: string;
@@ -7,9 +8,13 @@ interface StatTileProps {
   deltaPositive?: boolean;
   sub?: string;
   accent?: string;
+  // Optional metric-definition tooltip. When set, an info icon renders
+  // inline after the label and surfaces period/definition/formula/filters
+  // on hover or keyboard focus.
+  tooltip?: MetricTooltipContent;
 }
 
-export function StatTile({ label, value, delta, deltaPositive, sub, accent }: StatTileProps) {
+export function StatTile({ label, value, delta, deltaPositive, sub, accent, tooltip }: StatTileProps) {
   return (
     <div
       style={{
@@ -42,9 +47,13 @@ export function StatTile({ label, value, delta, deltaPositive, sub, accent }: St
           color: "var(--fg-2)",
           textTransform: "uppercase",
           letterSpacing: "var(--tracking-eyebrow)",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
         }}
       >
         {label}
+        {tooltip && <MetricTooltip content={tooltip} />}
       </span>
       <span
         style={{

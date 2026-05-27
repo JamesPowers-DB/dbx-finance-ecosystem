@@ -6,6 +6,8 @@ import type {
   ChatSessionCreate,
   ConfidenceBucket,
   ContractBurnDown,
+  ContractInvoiceRow,
+  ContractPORow,
   ContractRow,
   CostReductionRow,
   DisagreementRow,
@@ -16,6 +18,7 @@ import type {
   RenegotiationTarget,
   SavingsSummaryRow,
   SupplierRow,
+  SupplierScorecard,
 } from "./types";
 
 const API = "/api";
@@ -61,6 +64,10 @@ export const getRenewals = (daysOut?: number) =>
   j<ContractRow[]>(`/contracts/renewals${daysOut ? `?days_out=${daysOut}` : ""}`);
 export const getContractBurnDown = (id: string) =>
   j<ContractBurnDown>(`/contracts/${encodeURIComponent(id)}/burn_down`);
+export const getContractInvoices = (id: string, limit = 100) =>
+  j<ContractInvoiceRow[]>(`/contracts/${encodeURIComponent(id)}/invoices?limit=${limit}`);
+export const getContractPurchaseOrders = (id: string, limit = 100) =>
+  j<ContractPORow[]>(`/contracts/${encodeURIComponent(id)}/purchase_orders?limit=${limit}`);
 
 // ── Suppliers ─────────────────────────────────────────────────────────────────
 export const getSuppliers = (params?: Record<string, string>) => {
@@ -70,7 +77,7 @@ export const getSuppliers = (params?: Record<string, string>) => {
 export const getRenegotiationTargets = () =>
   j<RenegotiationTarget[]>("/suppliers/renegotiation_targets");
 export const getSupplierScorecard = (id: string) =>
-  j<Record<string, unknown>>(`/suppliers/${encodeURIComponent(id)}/scorecard`);
+  j<SupplierScorecard>(`/suppliers/${encodeURIComponent(id)}/scorecard`);
 
 // ── Cost Savings ──────────────────────────────────────────────────────────────
 export const getCostReductions = (params?: Record<string, string>) => {
@@ -81,6 +88,10 @@ export const getAvoidanceEntries = (fiscalYear?: number) =>
   j<AvoidanceEntry[]>(`/cost_savings/avoidance${fiscalYear ? `?fiscal_year=${fiscalYear}` : ""}`);
 export const createAvoidanceEntry = (body: AvoidanceEntryCreate) =>
   post<AvoidanceEntry>("/cost_savings/avoidance", body);
+export const approveAvoidanceEntry = (entryId: string) =>
+  post<AvoidanceEntry>(`/cost_savings/avoidance/${encodeURIComponent(entryId)}/approve`, {});
+export const rejectAvoidanceEntry = (entryId: string, reason: string) =>
+  post<AvoidanceEntry>(`/cost_savings/avoidance/${encodeURIComponent(entryId)}/reject`, { reason });
 export const getSavingsSummary = () => j<SavingsSummaryRow[]>("/cost_savings/summary");
 
 // ── Chatbot ───────────────────────────────────────────────────────────────────

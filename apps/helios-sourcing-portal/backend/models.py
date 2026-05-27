@@ -24,7 +24,13 @@ class MeResponse(BaseModel):
 
 class KpiResponse(BaseModel):
     total_spend_usd: float
+    # Managed Spend = % of addressable paid spend matched to an active contract
+    # or PR (the operational "under sourcing control" definition).
     managed_spend_pct: float
+    # Classified Spend = % of addressable paid spend with an ML-predicted
+    # secondary category (the ML-coverage definition that used to be called
+    # "Managed Spend" pre-tightening).
+    classified_spend_pct: float
     contract_coverage_pct: float
     on_time_payment_pct: float
     addressable_spend_usd: float
@@ -63,6 +69,25 @@ class ContractBurnDown(BaseModel):
     points: list[BurnDownPoint]
 
 
+# Drilldown rows for the contract side-panel tabs. Both queries reuse the
+# same contract-scope filter: supplier_id matches + invoice/PO date inside
+# the contract's effective–expiration window.
+
+class ContractInvoiceRow(BaseModel):
+    invoice_line_id: str
+    invoice_date: date | None
+    amount: float | None
+    true_category_primary: str | None
+    payment_status: str | None
+
+
+class ContractPORow(BaseModel):
+    po_number: str
+    po_line_num: int | None
+    extended_amount: float | None
+    true_category_primary: str | None
+
+
 # ── Suppliers ─────────────────────────────────────────────────────────────────
 
 class SupplierRow(BaseModel):
@@ -71,7 +96,10 @@ class SupplierRow(BaseModel):
     region: str | None
     category_primary: str | None
     payment_terms: str | None
-    maverick_propensity: float | None
+    # Measured maverick spend %: % of T12M paid spend NOT matched to an active
+    # contract for this supplier. Replaces the synthetic `maverick_propensity`
+    # demo seed.
+    measured_maverick_pct: float | None
     is_regulated_supplier: bool | None
     trailing_12m_spend: float | None
     invoice_count: int | None
@@ -125,6 +153,10 @@ class AvoidanceEntry(BaseModel):
     attested_by: str
     attested_at: datetime
     approved: bool
+    approved_by: str | None = None
+    approved_at: datetime | None = None
+    rejected_at: datetime | None = None
+    rejection_reason: str | None = None
 
 
 class AvoidanceEntryCreate(BaseModel):
@@ -141,12 +173,17 @@ class AvoidanceEntryCreate(BaseModel):
     notes: str | None = None
 
 
+class AvoidanceRejectBody(BaseModel):
+    reason: str
+
+
 class SavingsSummaryRow(BaseModel):
     segment_code: str | None
     fiscal_year: int
     fiscal_quarter: int
     reduction_usd: float
     avoidance_usd: float
+    pending_avoidance_usd: float
     total_savings_usd: float
     fpa_budget_usd: float | None
     savings_pct_of_budget: float | None

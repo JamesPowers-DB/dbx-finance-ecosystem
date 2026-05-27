@@ -4,6 +4,9 @@ import { PageHero } from "../components/layout/PageHero";
 import { Card } from "../components/layout/Card";
 import { StatTile } from "../components/StatTile";
 import { SegSelect } from "../components/Buttons";
+import { MetricTooltip } from "../components/MetricTooltip";
+import { HeaderLabel } from "../components/HeaderLabel";
+import { METRICS } from "../components/metricDefinitions";
 import { HistogramChart } from "../charts/HistogramChart";
 import { SparklineChart } from "../charts/SparklineChart";
 import {
@@ -68,10 +71,14 @@ export function LabelingMonitor({ searchQuery = "" }: { searchQuery?: string }) 
 
         {/* KPI strip */}
         <div style={{ display: "flex", gap: "var(--space-4)", marginBottom: "var(--space-6)", flexWrap: "wrap" }}>
-          <StatTile label="Avg Coverage" value={fmtPct(avgCoverage)} accent="var(--db-lava-600)" sub="classified / total" />
-          <StatTile label="Total Classified" value={fmtInt(totalClassified)} accent="var(--db-navy-800)" />
-          <StatTile label="Total Lines" value={fmtInt(totalLines)} accent="var(--db-gray-nav)" />
-          <StatTile label="Disagreements" value={fmtInt(disagreements.length)} accent="var(--warning)" sub="low-confidence errors" />
+          <StatTile label="Avg Coverage" value={fmtPct(avgCoverage)} accent="var(--db-lava-600)" sub="classified / total"
+            tooltip={METRICS.avgCoverage} />
+          <StatTile label="Total Classified" value={fmtInt(totalClassified)} accent="var(--db-navy-800)"
+            tooltip={METRICS.totalClassified} />
+          <StatTile label="Total Lines" value={fmtInt(totalLines)} accent="var(--db-gray-nav)"
+            tooltip={METRICS.totalLines} />
+          <StatTile label="Disagreements" value={fmtInt(disagreements.length)} accent="var(--warning)" sub="low-confidence errors"
+            tooltip={METRICS.disagreements} />
         </div>
 
         {/* Coverage table */}
@@ -80,14 +87,21 @@ export function LabelingMonitor({ searchQuery = "" }: { searchQuery?: string }) 
             {loading ? (
               <div style={{ padding: "var(--space-7)", textAlign: "center", color: "var(--fg-3)" }}>Loading…</div>
             ) : (
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <div style={{ overflowX: "auto" }}>
+              <table style={{ minWidth: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                    {["Segment", "Period", "Total Lines", "Classified", "Coverage %"].map((h) => (
-                      <th key={h} style={{ padding: "var(--space-3) var(--space-4)", textAlign: "left",
+                    {[
+                      { label: "Segment" },
+                      { label: "Period" },
+                      { label: "Total Lines", tooltip: METRICS.totalLines },
+                      { label: "Classified", tooltip: METRICS.totalClassified },
+                      { label: "Coverage %", tooltip: METRICS.coveragePct },
+                    ].map((h) => (
+                      <th key={h.label} style={{ padding: "var(--space-3) var(--space-4)", textAlign: "left",
                         fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)",
                         fontWeight: 500, textTransform: "uppercase" }}>
-                        {h}
+                        <HeaderLabel label={h.label} tooltip={h.tooltip} />
                       </th>
                     ))}
                   </tr>
@@ -122,6 +136,7 @@ export function LabelingMonitor({ searchQuery = "" }: { searchQuery?: string }) 
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </Card>
         )}
@@ -137,8 +152,13 @@ export function LabelingMonitor({ searchQuery = "" }: { searchQuery?: string }) 
               />
             </div>
             <Card>
-              <h3 style={{ fontSize: "var(--fs-body)", fontWeight: 700, marginBottom: "var(--space-4)" }}>
+              <h3 style={{ fontSize: "var(--fs-body)", fontWeight: 700, marginBottom: "var(--space-4)",
+                display: "inline-flex", alignItems: "center", gap: 6 }}>
                 Confidence Distribution — {tier === "secondary" ? "Leaf (secondary)" : "Parent (primary)"}
+                <MetricTooltip
+                  content={tier === "secondary" ? METRICS.confidenceLeaf : METRICS.confidenceParent}
+                  placement="bottom"
+                />
               </h3>
               {loading ? (
                 <div style={{ color: "var(--fg-3)", textAlign: "center" }}>Loading…</div>
@@ -174,14 +194,23 @@ export function LabelingMonitor({ searchQuery = "" }: { searchQuery?: string }) 
                 {disagreements.length === 0 ? "No disagreements found. Run batch inference first." : `No results for "${searchQuery}"`}
               </div>
             ) : (
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <div style={{ overflowX: "auto" }}>
+              <table style={{ minWidth: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                    {["Date", "Supplier", "Description", "Amount", "True Label", "Predicted", "Confidence"].map((h) => (
-                      <th key={h} style={{ padding: "var(--space-3) var(--space-4)", textAlign: "left",
+                    {[
+                      { label: "Date" },
+                      { label: "Supplier" },
+                      { label: "Description" },
+                      { label: "Amount" },
+                      { label: "True Label" },
+                      { label: "Predicted", tooltip: METRICS.predictedSecondaryCol },
+                      { label: "Confidence", tooltip: METRICS.secondaryConfidenceCol },
+                    ].map((h) => (
+                      <th key={h.label} style={{ padding: "var(--space-3) var(--space-4)", textAlign: "left",
                         fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)",
                         fontWeight: 500, textTransform: "uppercase" }}>
-                        {h}
+                        <HeaderLabel label={h.label} tooltip={h.tooltip} />
                       </th>
                     ))}
                   </tr>
@@ -214,6 +243,7 @@ export function LabelingMonitor({ searchQuery = "" }: { searchQuery?: string }) 
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </Card>
           );
@@ -259,14 +289,21 @@ export function LabelingMonitor({ searchQuery = "" }: { searchQuery?: string }) 
                     />
                   </div>
                 </div>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <div style={{ overflowX: "auto" }}>
+                <table style={{ minWidth: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      {["Alias", "Eval Date", "Holdout Leaf", "Maverick Leaf", "Holdout Parent"].map((h) => (
-                        <th key={h} style={{ padding: "var(--space-3) var(--space-4)", textAlign: "left",
+                      {[
+                        { label: "Alias" },
+                        { label: "Eval Date" },
+                        { label: "Holdout Leaf", tooltip: METRICS.holdoutAccuracy },
+                        { label: "Maverick Leaf", tooltip: METRICS.maverickAccuracy },
+                        { label: "Holdout Parent", tooltip: METRICS.parentAccuracy },
+                      ].map((h) => (
+                        <th key={h.label} style={{ padding: "var(--space-3) var(--space-4)", textAlign: "left",
                           fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)",
                           fontWeight: 500, textTransform: "uppercase" }}>
-                          {h}
+                          <HeaderLabel label={h.label} tooltip={h.tooltip} />
                         </th>
                       ))}
                     </tr>
@@ -294,6 +331,7 @@ export function LabelingMonitor({ searchQuery = "" }: { searchQuery?: string }) 
                     ))}
                   </tbody>
                 </table>
+                </div>
               </Card>
             )}
           </div>

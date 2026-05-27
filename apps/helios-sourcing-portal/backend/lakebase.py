@@ -66,6 +66,15 @@ CREATE TABLE IF NOT EXISTS savings_avoidance_entries (
     attested_at      TIMESTAMPTZ DEFAULT NOW(),
     approved         BOOLEAN DEFAULT FALSE
 );
+
+-- Idempotent column adds for the approval workflow. Older deployments may
+-- have the table without these columns; ADD COLUMN IF NOT EXISTS makes the
+-- DDL safe to re-run on each startup.
+ALTER TABLE savings_avoidance_entries
+    ADD COLUMN IF NOT EXISTS approved_by       TEXT,
+    ADD COLUMN IF NOT EXISTS approved_at       TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS rejected_at       TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS rejection_reason  TEXT;
 """
 
 

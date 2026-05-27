@@ -16,6 +16,34 @@ from .auth import CallerIdentity
 from .config import Settings, get_settings
 
 
+# ── Reusable SQL fragments ────────────────────────────────────────────────────
+#
+# `fact_invoices.payment_status` is the canonical "is this realized spend?"
+# predicate. Open / past-due invoices are commitments, not spend, and must be
+# excluded from every defensible spend aggregate.
+PAID_PREDICATE = "payment_status = 'PAID'"
+
+
+def t12m_supplier_spend_sql(s: Settings, paid_only: bool = True) -> str:
+    """Centralized trailing-12-month supplier spend subquery.
+
+    Returns a SQL fragment with two columns: `supplier_id`, `trailing_12m_spend`.
+    Callers wrap it in a CTE/subquery and join on `supplier_id`.
+
+    Filtering to PAID-only by default keeps every consumer of this fragment
+    consistent — six callers across system.py, suppliers.py, contracts.py,
+    and chatbot.py previously each wrote their own near-identical version
+    with subtly different predicates.
+    """
+    paid_clause = f" AND {PAID_PREDICATE}" if paid_only else ""
+    return f"""
+        SELECT supplier_id, SUM(amount) AS trailing_12m_spend
+        FROM {s.gold}.fact_invoices
+        WHERE invoice_date >= DATE_SUB(CURRENT_DATE(), 365){paid_clause}
+        GROUP BY supplier_id
+    """
+
+
 def _http_path(settings: Settings) -> str:
     if settings.warehouse_id:
         return f"/sql/1.0/warehouses/{settings.warehouse_id}"
