@@ -42,6 +42,21 @@ log = logging.getLogger("sourcing_portal.chatbot")
 
 router = APIRouter(prefix="/chat", tags=["chatbot"])
 
+
+# Genie status-polling backoff. Most Genie queries complete in 2-8 s; the
+# old flat 2-second sleep added 1-2 s of perceived latency to every call
+# (a 1-second query still cost ~2 s of polling overhead). Start aggressive
+# at 0.5 s, ramp to 1 s, then settle at 2 s for the long tail. Total
+# budget (60 iterations) stays roughly equivalent to the old 45 * 2 = 90 s
+# ceiling.
+_GENIE_POLL_INTERVALS = [0.5, 0.5, 0.5, 0.5, 1.0, 1.0, 1.0, 1.0, 2.0]
+_GENIE_POLL_MAX_ATTEMPTS = 60
+
+
+def _genie_poll_interval(attempt: int) -> float:
+    """Return the sleep duration (seconds) for the given poll attempt index."""
+    return _GENIE_POLL_INTERVALS[min(attempt, len(_GENIE_POLL_INTERVALS) - 1)]
+
 _SYSTEM_PROMPT = """You are the Helios Procurement Assistant for the Strategic Sourcing Portal.
 You help sourcing managers and buyers find the right suppliers, check active contracts,
 understand price history, submit purchase requests, and explore spend analytics.
@@ -483,8 +498,8 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                         "auth_mode": auth_mode,
                     }
 
-                for _ in range(45):
-                    time.sleep(2)
+                for attempt in range(_GENIE_POLL_MAX_ATTEMPTS):
+                    time.sleep(_genie_poll_interval(attempt))
                     msg = genie_request(
                         "GET",
                         f"/api/2.0/genie/spaces/{space_id}/conversations/{conv_id}/messages/{msg_id}",
@@ -500,12 +515,43 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                             (a.get("text", {}) for a in attachments if "text" in a), {}
                         )
                         answer = text_att.get("content", "") or query_att.get("description", "")
+
+                        # Fetch the actual query-result to get a real row count.
+                        # The Genie message attachment carries the SQL definition
+                        # but NOT the executed rows — those live behind a separate
+                        # /query-result endpoint that returns a Statement Execution
+                        # API-shaped payload. Best-effort: if this call fails or
+                        # the SQL never executed, row_count stays None and the
+                        # UI renders "rows pending" instead of lying with "0 rows".
+                        row_count = None
+                        if query_att.get("query"):
+                            qr = genie_request(
+                                "GET",
+                                f"/api/2.0/genie/spaces/{space_id}"
+                                f"/conversations/{conv_id}/messages/{msg_id}/query-result",
+                                token,
+                            )
+                            # Two possible shapes — newer API nests the SDK
+                            # Statement Execution response, older returns it
+                            # at the top level. Probe both.
+                            sr = qr.get("statement_response") or qr
+                            manifest = sr.get("manifest") or {}
+                            row_count = (
+                                manifest.get("total_row_count")
+                                or manifest.get("total_chunk_row_count")
+                            )
+                            if row_count is None:
+                                result_payload = sr.get("result") or {}
+                                data_array = result_payload.get("data_array")
+                                if data_array is not None:
+                                    row_count = len(data_array)
+
                         return {
                             "ok": True,
                             "question": question,
                             "answer": answer,
                             "sql": query_att.get("query", ""),
-                            "row_count": len(query_att.get("rows", [])),
+                            "row_count": row_count,
                             "conv_id": conv_id,
                             "msg_id": msg_id,
                             "space_id": space_id,

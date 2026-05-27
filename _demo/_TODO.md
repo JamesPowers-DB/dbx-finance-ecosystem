@@ -27,14 +27,14 @@
 - ✅ **`gold.fact_invoices` confirmed populated** — 312,188 rows, FY23–FY26 Q1
 - ✅ **`ml.invoice_classifications` fully populated** — all 312,188 invoice lines classified with `predicted_primary_category` + `predicted_secondary_category`
 
-**Phase 3 (Apps) is now live + defensibility-tightened + drilldown-rich (current deployment `01f159dbb80716f68573ce2a410bdfa0`):**
+**Phase 3 (Apps) is now live + defensibility-tightened + drilldown-rich + chat-UX-polished (current deployment `01f159e1011f130ab211613e306e37a6`):**
 - ✅ `pipelines/spend/gold/fact_cost_savings.sql` — gold table created; 1,899 rows, $47.6M savings across 30 categories
 - ✅ `resources/pipeline.yml` updated to include `fact_cost_savings.sql`
 - ✅ `databricks.yml` updated: `warehouse_id` variable + `sync.include` for frontend dist
 - ✅ `resources/apps.yml` — new bundle resource, `helios-sourcing-portal-${bundle.target}`, warehouse OBO binding
 - ✅ `apps/helios-sourcing-portal/` — full FastAPI + Vite/React/TS app scaffold (50+ files)
 - ✅ App live at `https://helios-sourcing-portal-dev-1444828305810485.aws.databricksapps.com`
-- ✅ All 5 features rendering with real data: Contract Burn-Down (250 active **after date validity fix** — was 423 before excluding 173 calendar-expired rows), Supplier Performance (3,000 suppliers), Cost Savings ($47.6M reductions + manual avoidance approval workflow), Procurement Chatbot (7 tools incl. `get_remaining_budget` + `ask_genie`), Spend Labeling Monitor (100% coverage)
+- ✅ All 5 features rendering with real data: Contract Burn-Down (250 active **after date validity fix** — was 423 before excluding 173 calendar-expired rows), Supplier Performance (3,000 suppliers), Cost Savings ($47.6M reductions + manual avoidance approval workflow), Procurement Chatbot (7 tools incl. `get_remaining_budget` + `ask_genie`, with always-on "Thinking…" indicator and clean tool-card UX — no raw JSON, real row counts via `/query-result`), Spend Labeling Monitor (100% coverage)
 - ✅ Home KPIs (verified live against dev warehouse): **Total Spend $2.91B** (T12M paid only), **Managed Spend 99.6%** (PO-matched or active-contract-matched), **Contract Coverage 8.9%** (paid spend under active contract), **On-Time Payment %** (spend-weighted)
 - ✅ Contract drilldown panel — tabbed Summary / Linked Invoices / Linked POs, all contract-scoped (supplier + effective window + paid)
 - ✅ Supplier scorecard drilldown panel — Summary / Contracts / 8-quarter Spend Trend, paid-only T12M throughout
@@ -120,6 +120,31 @@ Five issues surfaced during the post-deploy smoke test (one user-reported toolti
 
   Verified against the warehouse: Managed Spend = **99.6%** (most invoices are PO-matched in this dataset), Contract Coverage = **8.9%** (only ~9% of paid addressable spend is from suppliers with an active SOW/Framework — the procurement opportunity story). Deployment `01f159dbb80716f68573ce2a410bdfa0` (live at 14:53:16Z).
 
+**Latest session (2026-05-27 late PM) — Chatbot UX polish:**
+
+Two paired chatbot iterations driven by live demo feedback (raw JSON in tool cards + "feels frozen on send + slow"). Current deployment ID `01f159e1011f130ab211613e306e37a6` (15:31:07Z, healthy uvicorn startup).
+
+*Issue 6 — `ask_genie` tool card showed raw args JSON `{ "question": "..." }` + the SQL block displayed "0 rows" for queries that clearly returned data.*
+
+  Root causes were two independent bugs sharing one symptom:
+  1. **Args JSON in tool cards is redundant noise for `ask_genie`**: the args is literally the user's prompt that already sits in the orange bubble three inches above. Even for other tools, `JSON.stringify(args, null, 2)` inside a `<pre>` reads as developer-debug, not a demo-grade UI.
+  2. **"SQL · 0 rows" was a lie**: the backend computed `row_count = len(query_att.get("rows", []))`, but Genie's message attachment only carries the SQL definition — the actual rows live behind a separate `GET /api/2.0/genie/spaces/{space_id}/conversations/{conv_id}/messages/{msg_id}/query-result` endpoint that was never called. So every Genie response showed 0 rows regardless.
+
+  Fixes:
+  - Replaced the raw `<pre>{JSON.stringify(...)}</pre>` block in [Chatbot.tsx](apps/helios-sourcing-portal/frontend/src/pages/Chatbot.tsx) with a `<ToolArgs>` helper that special-cases `ask_genie` (single grey line: `Question: {question}`) and renders all other tools as an inline mono key-value strip (`category: IT Hardware · top_n: 3`).
+  - Added a second Genie API call in [chatbot.py](apps/helios-sourcing-portal/backend/routers/chatbot.py) `run_genie_query` to fetch `/query-result` after status COMPLETED. Probes both `statement_response.manifest.total_row_count` and `result.data_array` shapes; falls back to `null` (not `0`) when neither is available so the UI can render "rows pending" instead of lying. Frontend `GenieResult.row_count` type widened to `number | null` and row label switched to `null` → "rows pending", `1` → "1 row", `N` → "N rows".
+  - Deployment `01f159df650914d1bedfaad7c9ef12b3`.
+
+*Issue 7 — "When I submit a prompt there is no indication that it's thinking" + "It is also slow to respond".*
+
+  Two quick wins, no behavior risk:
+  - **Indicator gap**: the prior `"Running…"` indicator at [Chatbot.tsx](apps/helios-sourcing-portal/frontend/src/pages/Chatbot.tsx) had a `toolCards.length > 0` guard that hid it during the 5-15 second window between Send and the first `tool_start` SSE event — exactly when users most need feedback. Dropped that clause, replaced with an always-on "Helios is thinking…" chat bubble that includes a 3-dot pulse animation (sequential 0s/0.15s/0.3s delays using the existing global `home-pulse` keyframes — no new CSS). Bubble appears within ~16 ms of click and renames its suffix in-flight: `Helios is thinking — ran 1 tool…` once a tool fires. New small `ThinkingDots` component lives at the bottom of `Chatbot.tsx` next to the existing `ToolArgs` helper.
+  - **Genie polling overhead**: the polling loop inside `run_genie_query` was sleeping a flat 2 seconds between every status check — so a Genie query that completed in 1 second still cost the user ~2-3 s of perceived wait. Replaced with a backoff schedule `_GENIE_POLL_INTERVALS = [0.5, 0.5, 0.5, 0.5, 1.0, 1.0, 1.0, 1.0, 2.0]` (last interval repeats) via a module-level `_genie_poll_interval(attempt)` helper. Max attempts bumped to 60 to preserve the ~90 s total budget. Expected savings: 1-2 s on fast queries (1-3 s), 2-3 s on typical queries (5-8 s), no change on long-tail queries (>15 s).
+
+  Deployment `01f159e1011f130ab211613e306e37a6`. Build delta +0.6 kB / +130 B gzip (the new `ThinkingDots` component).
+
+  Deferred from this round (lower ROI than effort): FMAPI token streaming (would let content appear word-by-word for non-Genie prompts, biggest perceived-speed win but ~2 hours and medium risk on SSE parsing); orchestration model swap (Llama 3.3 70B → Claude Haiku / 8B Llama, 5-10× faster round trips but may regress tool selection quality); backgrounding the `/query-result` call (~500 ms-1 s but added complexity).
+
 **Deploy commands (direct CLI — bundle update mask bug workaround):**
 ```bash
 cd apps/helios-sourcing-portal/frontend && npm run build
@@ -148,7 +173,8 @@ databricks apps deploy helios-sourcing-portal-dev \
 1. ✅ ~~Provision Lakebase instance~~ — `helios-sourcing` project live; OBO auth wired; DDL runs on first user request
 2. ✅ ~~DM Sans / DM Mono fonts~~ — committed to `frontend/public/ds/fonts/`; variable-font `@font-face` declarations resolved 404s
 3. ✅ ~~Procurement tightening + metric tooltips~~ (2026-05-27 AM — backend defensibility, contract/supplier drilldowns, avoidance approval workflow, structured tooltips on every KPI/header/pill)
-4. ✅ ~~Live-testing bug fixes~~ (2026-05-27 PM — 5 issues across 4 redeploys: tooltip portal rewrite, table horizontal-scroll wiring, burn-down CTE refactor + `MOD` -> `%` SQL fix + frontend error/empty-state branches, `Decimal`/`float` arithmetic coercion + `invoice_line_id BIGINT->STRING` CAST, hallucinated `source_pr_number` -> `po_matched_flag` + JOIN-fanout -> EXISTS). Live deployment ID `01f159dbb80716f68573ce2a410bdfa0`.
+4. ✅ ~~Live-testing bug fixes~~ (2026-05-27 PM — 5 issues across 4 redeploys: tooltip portal rewrite, table horizontal-scroll wiring, burn-down CTE refactor + `MOD` -> `%` SQL fix + frontend error/empty-state branches, `Decimal`/`float` arithmetic coercion + `invoice_line_id BIGINT->STRING` CAST, hallucinated `source_pr_number` -> `po_matched_flag` + JOIN-fanout -> EXISTS). Deployment `01f159dbb80716f68573ce2a410bdfa0`.
+4a. ✅ ~~Chatbot UX polish~~ (2026-05-27 late PM — 2 issues across 2 redeploys: tool-card raw JSON cleanup + real Genie row count via `/query-result`; always-on "Thinking…" indicator + Genie polling backoff). Deployment `01f159e1011f130ab211613e306e37a6`.
 5. **End-to-end browser smoke pass against the live app** (anyone with access can run):
    - (a) Home tiles populate with **Total Spend $2.91B**, **Managed Spend 99.6%**, **Contract Coverage 8.9%**, **On-Time Payment %** non-zero (these are the warehouse-verified values at deploy time).
    - (b) Hover info icons on the rightmost column of every list table — popover should render fully inside the viewport, never clipped (the portal/position-fixed rewrite escapes table/page/panel overflow contexts).
@@ -156,7 +182,9 @@ databricks apps deploy helios-sourcing-portal-dev \
    - (d) Open Contracts -> click any contract -> Summary tab renders a real burn-down chart (e.g. `CW-02000851` shows $653k cumulative across FY25 Q3 -> FY26 Q2) OR shows the "No paid invoices in this contract's window yet" empty-state.
    - (e) Open Suppliers -> Scorecard row-click opens the inline 400px panel with Summary / Contracts / Trend tabs.
    - (f) Log avoidance -> Approve -> "Total Avoidance" KPI updates and "Pending: $X" sub-line decrements for that row.
-   - (g) Ask the chatbot "what's my remaining budget for HET in FY26 Q1?" and verify `get_remaining_budget` returns **Budget $188.77M / Paid $149.56M / Remaining $39.21M**.
+   - (g) Open Chatbot -> send any prompt -> a left-aligned "Helios is thinking…" bubble with 3 pulsing dots should appear immediately (within ~16 ms), update to "ran 1 tool…" once a tool fires, and swap for the streamed answer once content begins.
+   - (h) Ask the chatbot an analytics prompt (e.g. "What's our revenue by region for 2025?") -> expanded `ask_genie` tool card should show `Question: …` (no raw JSON), the SQL block, and a real row count like `SQL · 4 rows` (no more "0 rows").
+   - (i) Ask the chatbot "what's my remaining budget for HET in FY26 Q1?" and verify `get_remaining_budget` returns **Budget $188.77M / Paid $149.56M / Remaining $39.21M**.
 6. End-to-end chatbot test: (a) ask an analytics question — verify `ask_genie` routes to Genie; (b) submit a PR — verify it lands in `bronze_ariba.EBAN_PR_LINE`.
 7. Resolve bundle state drift (or accept direct CLI deploy as the workaround).
 8. Move to Phase 4 — demo script, pitch deck, dbdemos packaging.

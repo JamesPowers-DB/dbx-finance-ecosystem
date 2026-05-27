@@ -9,7 +9,9 @@ import type { ChatMessage, ChatSession } from "../types";
 
 interface GenieResult {
   sql?: string;
-  row_count?: number;
+  // null when the backend couldn't fetch the actual row count (e.g. /query-result
+  // call failed); undefined when ask_genie never returned a SQL result at all.
+  row_count?: number | null;
   conv_id?: string;
   msg_id?: string;
   space_id?: string;
@@ -352,17 +354,21 @@ export function Chatbot() {
                     </div>
                     {expandedTools.has(i) && (
                       <>
-                        <pre style={{ fontSize: 11, color: "var(--fg-3)", fontFamily: "var(--font-mono)", margin: "var(--space-2) 0 0", overflowX: "auto" }}>
-                          {JSON.stringify(ev.args, null, 2)}
-                        </pre>
+                        <ToolArgs name={ev.name} args={ev.args} />
                         {(() => {
                           const resultEv = toolCards[i + 1];
                           const gr = resultEv?.genieResult;
                           if (!gr?.sql) return null;
+                          const rowCountLabel =
+                            gr.row_count == null
+                              ? "rows pending"
+                              : gr.row_count === 1
+                                ? "1 row"
+                                : `${gr.row_count.toLocaleString()} rows`;
                           return (
                             <div style={{ marginTop: "var(--space-3)", borderTop: "1px solid var(--border)", paddingTop: "var(--space-2)" }}>
                               <div style={{ fontSize: 11, color: "var(--fg-3)", marginBottom: "var(--space-1)" }}>
-                                SQL · {gr.row_count ?? 0} rows
+                                SQL · {rowCountLabel}
                               </div>
                               <pre style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--fg-2)", margin: 0, overflowX: "auto", whiteSpace: "pre-wrap" }}>
                                 {gr.sql}
@@ -418,15 +424,30 @@ export function Chatbot() {
                 </div>
               )}
 
-              {/* Running indicator */}
-              {streaming && !streamBuf && toolCards.length > 0 && (
-                <div style={{ marginBottom: "var(--space-3)", color: "var(--fg-3)", fontSize: 12,
-                  fontFamily: "var(--font-mono)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%",
-                    background: "var(--db-lava-600)", animation: "home-pulse 0.8s ease-in-out infinite" }} />
-                  Running…
-                </div>
-              )}
+              {/* Thinking indicator — shown from t=0 (the moment Send fires)
+                  until the first content token streams in. Gives the user
+                  instant feedback that the request is in flight, including
+                  the gap before any tool_start event arrives. */}
+              {streaming && !streamBuf && (() => {
+                const toolCount = toolCards.filter((t) => t.type === "tool_start").length;
+                return (
+                  <div style={{ marginBottom: "var(--space-4)", display: "flex", justifyContent: "flex-start" }}>
+                    <div style={{
+                      background: "var(--bg-canvas)", border: "1px solid var(--border)",
+                      borderRadius: "var(--radius-lg)", padding: "var(--space-3) var(--space-4)",
+                      display: "inline-flex", alignItems: "center", gap: "var(--space-3)",
+                      color: "var(--fg-3)", fontSize: 13, fontFamily: "var(--font-sans)",
+                    }}>
+                      <ThinkingDots />
+                      <span>
+                        Helios is thinking
+                        {toolCount > 0 && ` — ran ${toolCount} tool${toolCount === 1 ? "" : "s"}`}
+                        …
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Error */}
               {error && (
@@ -460,6 +481,78 @@ export function Chatbot() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// Animated 3-dot "typing" indicator used in the Thinking bubble. The
+// existing `home-pulse` keyframes are defined globally in index.html /
+// colors_and_type.css (already used by the streaming-content cursor and
+// the home page tile pulse). We stagger the animation-delay per dot so
+// they ripple in sequence rather than blink together.
+function ThinkingDots() {
+  return (
+    <span
+      aria-label="Thinking"
+      role="status"
+      style={{ display: "inline-flex", alignItems: "center", gap: 3 }}
+    >
+      {[0, 0.15, 0.3].map((delay, i) => (
+        <span
+          key={i}
+          style={{
+            display: "inline-block",
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: "var(--db-lava-600)",
+            animation: "home-pulse 0.9s ease-in-out infinite",
+            animationDelay: `${delay}s`,
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
+// Inline args renderer for tool cards. For ask_genie, we surface a single
+// "Question: …" line (the args is literally the user's prompt, which already
+// appears in the bubble above — no value in showing it as raw JSON). For
+// other tools, we render a clean key-value strip in mono — much friendlier
+// to a procurement / executive audience than raw JSON.stringify output.
+function ToolArgs({ name, args }: { name?: string; args?: unknown }) {
+  if (!args || typeof args !== "object") return null;
+  const argObj = args as Record<string, unknown>;
+
+  if (name === "ask_genie" && typeof argObj.question === "string") {
+    return (
+      <div style={{
+        fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)",
+        margin: "var(--space-2) 0 0", lineHeight: "var(--lh-normal)",
+      }}>
+        <span style={{ color: "var(--fg-3)" }}>Question:</span>{" "}
+        <span style={{ color: "var(--fg-2)" }}>{argObj.question}</span>
+      </div>
+    );
+  }
+
+  const entries = Object.entries(argObj).filter(([, v]) => v != null && v !== "");
+  if (entries.length === 0) return null;
+
+  return (
+    <div style={{
+      fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)",
+      margin: "var(--space-2) 0 0", lineHeight: "var(--lh-normal)",
+      display: "flex", flexWrap: "wrap", gap: "var(--space-1) var(--space-3)",
+    }}>
+      {entries.map(([k, v]) => (
+        <span key={k}>
+          <span style={{ color: "var(--fg-3)" }}>{k}:</span>{" "}
+          <span style={{ color: "var(--fg-2)" }}>
+            {typeof v === "object" ? JSON.stringify(v) : String(v)}
+          </span>
+        </span>
+      ))}
     </div>
   );
 }
