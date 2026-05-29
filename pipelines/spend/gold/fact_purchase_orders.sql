@@ -42,7 +42,11 @@ SELECT
   po.source_pr_line_num,
   -- Demo-only ground truth (2-tier). See note on fact_invoices for label-sourcing context.
   po.true_category_primary,
-  po.true_category_secondary
+  po.true_category_secondary,
+  -- Procurement document lineage: origination channel + contract / sourcing-event links.
+  po.pr_source,
+  po.contract_id,
+  po.sourcing_event_id
 FROM ${schema_silver}.purchase_order po
 LEFT JOIN ${schema_gold}.dim_supplier s
   ON po.supplier_id = s.supplier_id;

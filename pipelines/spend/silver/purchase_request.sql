@@ -41,6 +41,9 @@ SELECT
   l.WAERS                                                           AS currency,
   l._true_category_primary                                          AS true_category_primary,
   l._true_category_secondary                                        AS true_category_secondary,
+  l._pr_source                                                      AS pr_source,
+  l._contract_id                                                    AS contract_id,
+  l._sourcing_event_id                                              AS sourcing_event_id,
   YEAR(h.ERDAT)                                                     AS fiscal_year,
   QUARTER(h.ERDAT)                                                  AS fiscal_quarter
 FROM ${schema_bronze_ariba}.EBAN_PR_LINE l

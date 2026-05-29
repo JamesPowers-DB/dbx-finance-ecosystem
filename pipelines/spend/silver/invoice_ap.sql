@@ -59,6 +59,11 @@ SELECT
   l._true_category_primary                                     AS true_category_primary,
   l._true_category_secondary                                   AS true_category_secondary,
 
+  -- procurement document lineage (NULL on non-PO vouchers / off-contract lines)
+  l._pr_source                                                 AS pr_source,
+  l._contract_id                                               AS contract_id,
+  l._sourcing_event_id                                         AS sourcing_event_id,
+
   YEAR(h.invoice_date)                                         AS fiscal_year,
   QUARTER(h.invoice_date)                                      AS fiscal_quarter
 FROM ${schema_bronze_fusion}.ap_invoice_lines_all l

@@ -369,6 +369,10 @@ def generate_quarter_fusion(fy: int, fq: int):
                 "_segment_code": seg,
                 "_true_category_primary": prl["_true_category_primary"],
                 "_true_category_secondary": prl["_true_category_secondary"],
+                # Procurement document lineage — rides PR→PO→invoice (see _lib.py)
+                "_pr_source": prl.get("_pr_source"),
+                "_contract_id": prl.get("_contract_id"),
+                "_sourcing_event_id": prl.get("_sourcing_event_id"),
                 "_intended_invoice_amount": po_unit_price * float(prl["MENGE"]),
             }
             po_lines_rows.append(line_row)
@@ -455,6 +459,10 @@ def generate_quarter_fusion(fy: int, fq: int):
                 "_segment_code": seg,
                 "_true_category_primary": cat_parent,
                 "_true_category_secondary": recorded_cat_code,
+                # Procurement document lineage — inherited from the PO line
+                "_pr_source": poline.get("_pr_source"),
+                "_contract_id": poline.get("_contract_id"),
+                "_sourcing_event_id": poline.get("_sourcing_event_id"),
             })
 
         ap_invoices_rows.append({
@@ -541,6 +549,10 @@ def generate_quarter_fusion(fy: int, fq: int):
             "_segment_code": seg,
             "_true_category_primary": CHILD_TO_PARENT[cat_code],
             "_true_category_secondary": recorded_cat_code,
+            # Non-PO direct vouchers bypass the PR/Ariba flow — no document lineage.
+            "_pr_source": None,
+            "_contract_id": None,
+            "_sourcing_event_id": None,
         })
         ap_invoices_rows.append({
             "invoice_id": invoice_id,
@@ -750,7 +762,11 @@ def generate_quarter_fusion(fy: int, fq: int):
     # the supervised-label propagation path PR→PO→invoice line for ML).
     # Drop only the purely-internal _intended_invoice_amount used during gen.
     write_parquet(
-        pl.DataFrame(po_lines_rows).drop("_intended_invoice_amount"),
+        # schema_overrides at construction: the lineage columns are mostly NULL early,
+        # so declare them Utf8 rather than letting Polars infer a Null column.
+        pl.DataFrame(po_lines_rows, schema_overrides={
+            "_pr_source": pl.Utf8, "_contract_id": pl.Utf8, "_sourcing_event_id": pl.Utf8,
+        }).drop("_intended_invoice_amount"),
         f"{OUT}/po_lines_all_{quarter_label}.parquet",
     )
 
@@ -791,6 +807,10 @@ def generate_quarter_fusion(fy: int, fq: int):
         "_segment_code": pl.Utf8,
         "_true_category_primary": pl.Utf8,
         "_true_category_secondary": pl.Utf8,
+        # Procurement document lineage (nullable — NULL on non-PO vouchers / off-contract lines)
+        "_pr_source": pl.Utf8,
+        "_contract_id": pl.Utf8,
+        "_sourcing_event_id": pl.Utf8,
     }
     write_parquet(
         pl.DataFrame(ap_invoice_lines_rows, schema=ap_line_schema),

@@ -37,6 +37,9 @@ SELECT
   l.source_pr_number_ext                                            AS source_pr_number,
   CAST(l.source_pr_line_num_ext AS INT)                             AS source_pr_line_num,
   l._true_category_primary                                          AS true_category_primary,
-  l._true_category_secondary                                        AS true_category_secondary
+  l._true_category_secondary                                        AS true_category_secondary,
+  l._pr_source                                                      AS pr_source,
+  l._contract_id                                                    AS contract_id,
+  l._sourcing_event_id                                              AS sourcing_event_id
 FROM ${schema_bronze_fusion}.po_lines_all l
 JOIN ${schema_bronze_fusion}.po_headers_all h USING (po_header_id);

@@ -61,7 +61,10 @@ WITH base AS (
     inv.segment_code,
     inv.currency,
     inv.true_category_primary,
-    inv.true_category_secondary
+    inv.true_category_secondary,
+    inv.pr_source,
+    inv.contract_id,
+    inv.sourcing_event_id
   FROM ${schema_silver}.invoice_ap inv
 )
 SELECT
@@ -82,6 +85,7 @@ SELECT
   s.country_code                            AS supplier_country,
   s.maverick_propensity                     AS supplier_maverick_propensity,
   s.is_regulated_supplier,
+  s.category_primary                        AS supplier_category,
   b.po_matched_flag,
   b.source_po_header_id,
   b.po_line_id,
@@ -109,6 +113,13 @@ SELECT
   -- Supervised labels (2-tier) — demo-only ground truth
   b.true_category_primary,
   b.true_category_secondary,
+
+  -- Procurement document lineage. FKs: contract_id → contract_inbound.contract_workspace_id,
+  -- sourcing_event_id → sourcing_event.event_id. Both NULL = unmanaged / off-contract spend.
+  -- "Managed spend" downstream = contract_id IS NOT NULL OR sourcing_event_id IS NOT NULL.
+  b.pr_source,
+  b.contract_id,
+  b.sourcing_event_id,
 
   -- ML predictions (LEFT JOIN — NULL when batch inference hasn't run)
   c.predicted_primary_category,

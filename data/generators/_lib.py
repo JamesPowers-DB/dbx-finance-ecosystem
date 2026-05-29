@@ -679,3 +679,66 @@ NON_PO_INVOICE_RATE = 0.10     # 10% of invoices have no upstream PO (direct vou
 PR_STATUS_RELEASED = "B"   # Released (will become a PO)
 PR_STATUS_CANCELLED = "L"  # Cancelled
 PR_STATUS_OPEN = "N"       # Open / not yet processed
+
+
+# COMMAND ----------
+# MAGIC %md ## Procurement document lineage — sourcing & contract attribution
+# MAGIC
+# MAGIC Real procure-to-pay stamps an origination channel on the PR and, when the
+# MAGIC buy crosses governance thresholds, links it to a contract and/or a
+# MAGIC competitive sourcing event. Those references ride PR → PO → invoice, so
+# MAGIC "is this spend managed?" is answered by document lineage (contract_id /
+# MAGIC sourcing_event_id present on the invoice line), not a supplier-level
+# MAGIC heuristic. Compliance is deliberately imperfect — the gap between
+# MAGIC "required" and "present" is the off-contract / maverick-spend story.
+# MAGIC
+# MAGIC The compliance probabilities below are the primary tuning knob for the
+# MAGIC headline Managed-Spend rate (target ≈ 50% of addressable spend *by dollars*,
+# MAGIC much lower by invoice count — managed spend is a small count of large buys).
+
+# COMMAND ----------
+# Governance thresholds on PR total value (USD). Soft, not hard cliffs.
+CONTRACT_REQUIRED_THRESHOLD = 50_000          # buys above this should sit under a contract
+SOURCING_EVENT_REQUIRED_THRESHOLD = 500_000   # buys above this should be competitively sourced
+# Each PR's effective threshold is scaled by lognormal(0, sigma) so the requirement
+# boundary is fuzzy rather than a clean step at $50k / $500k.
+THRESHOLD_JITTER_SIGMA = 0.25
+
+# PR origination channels. All PRs land in Ariba; this is where they came from.
+PR_SOURCE_CATALOG = "Catalog"
+PR_SOURCE_PORTAL = "AribaPortal"
+PR_SOURCE_MANUAL = "ManualSubmission"
+PR_SOURCE_AGENT = "ProcurementAgent"
+PR_SOURCES = [PR_SOURCE_CATALOG, PR_SOURCE_PORTAL, PR_SOURCE_MANUAL, PR_SOURCE_AGENT]
+
+# Base mix before per-PR tilts (sums to 1.0). Portal is the default guided-buying path.
+PR_SOURCE_BASE_WEIGHTS = {
+    PR_SOURCE_CATALOG: 0.30,
+    PR_SOURCE_PORTAL:  0.40,
+    PR_SOURCE_MANUAL:  0.22,
+    PR_SOURCE_AGENT:   0.08,
+}
+
+# Per-source compliance behaviour. `*_when_required` = P(required doc actually present);
+# `contract_overcomply` = P(contract present even when NOT required) — catalog items are
+# pre-negotiated, so catalog spend is contract-backed regardless of size.
+SOURCE_COMPLIANCE = {
+    PR_SOURCE_CATALOG: {"contract_when_required": 0.92, "event_when_required": 0.55, "contract_overcomply": 0.80},
+    PR_SOURCE_PORTAL:  {"contract_when_required": 0.86, "event_when_required": 0.82, "contract_overcomply": 0.10},
+    PR_SOURCE_MANUAL:  {"contract_when_required": 0.45, "event_when_required": 0.35, "contract_overcomply": 0.04},
+    PR_SOURCE_AGENT:   {"contract_when_required": 0.90, "event_when_required": 0.70, "contract_overcomply": 0.30},
+}
+
+# Routine, low-ticket categories — what Catalog and ProcurementAgent buy. Used to
+# tilt source assignment (routine → more catalog/agent) and to bound the agent
+# channel to routine goods/services only.
+ROUTINE_CATEGORIES = {
+    "Office_Supplies", "Facilities", "Travel", "Marketing", "Training",
+    "MRO_Services_Aero", "Calibration_Services",
+    "IT_Services", "Telecommunications", "Cloud_Infrastructure",
+    "Monitoring_Software", "Logistics_Freight",
+}
+
+# Chaos knobs.
+LINEAGE_EXCEPTION_RATE = 0.05   # global coin-flip that flips an intended link decision
+LINE_LINK_DROPOUT_RATE = 0.08   # a linked PR may leave a tail line off-contract (mixed PR)
