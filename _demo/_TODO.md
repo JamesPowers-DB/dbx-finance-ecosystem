@@ -1,4 +1,4 @@
-# TODO — Helios Finance Ecosystem Demo
+# TODO — Finance Ecosystem Demo
 
 > Index. Detail lives in `todo/` (by aspect) and `updates/` (one file per dated work session).
 > Companion files: `00_design_context.md` (architecture), `data/generators/README.md` (data flow), root `README.md` (deploy).
@@ -47,5 +47,7 @@
 | 2026-05-27 late | [Chatbot UX polish](updates/20260527c_chatbot_ux_polish.md) |
 | 2026-05-28 | [App review, TODO restructure, metric layer](updates/20260528_metric_views.md) |
 | 2026-05-28 | [Procurement document lineage (contracts/events → invoices)](updates/20260528_procurement_lineage.md) |
+| 2026-05-29 | [App + Genie adopt metric views; Spend Analytics dashboard; bug cleanups](updates/20260529_app_metric_view_adoption.md) |
+| 2026-05-29 | [De-brand → Strategic Spend Analytics (outcome-centered, Databricks-first)](updates/20260529_debrand_spend_analytics.md) |
 
 > **Adding an update:** create `updates/YYYYMMDD_{feature}.md` (one file per session/feature), then add a row above. Keep `_TODO.md` thin — move durable detail into the relevant `todo/` aspect file and link it.

@@ -58,92 +58,146 @@ WITH METRICS
 LANGUAGE YAML
 AS $$
 version: 1.1
-comment: "Spend semantic + metric layer over gold.fact_invoices (straight table source — fact_invoices already carries every column needed, so no source query and no joins). The governed per-line conditions (paid / addressable / contracted / sourced / po-matched / classified) live inline in the measure expressions. Managed = contracted OR competitively sourced (NOT PO-match). Base for mv_supplier_performance."
-source: {catalog}.{gold}.fact_invoices
+
+source: horizontal_finance_dev.gold.fact_invoices
+
+comment: "Spend semantic + metric layer over gold.fact_invoices (straight table source\
+  \ — fact_invoices already carries every column needed, so no source query and no\
+  \ joins). The governed per-line conditions (paid / addressable / contracted / sourced\
+  \ / po-matched / classified) live inline in the measure expressions. Managed = contracted\
+  \ OR competitively sourced (NOT PO-match). Base for mv_supplier_performance."
+
 dimensions:
   - name: invoice_date
-    display_name: "Invoice Date"
     expr: invoice_date
-    comment: "AP invoice line date. Filter >= date_sub(current_date,365) for trailing-12-month views."
-    synonyms: ['invoice date', 'date']
+    comment: "AP invoice line date. Filter >= date_sub(current_date,365) for trailing-12-month\
+      \ views."
+    display_name: Invoice Date
+    synonyms:
+      - invoice date
+      - date
+  - name: payment_date
+    expr: payment_date
+    display_name: Payment Date
+    synonyms:
+      - payment date
+      - pay date
   - name: fiscal_year
-    display_name: "Fiscal Year"
     expr: fiscal_year
-    synonyms: ['fy', 'year']
+    display_name: Fiscal Year
+    synonyms:
+      - fy
+      - year
   - name: fiscal_quarter
-    display_name: "Fiscal Quarter"
     expr: fiscal_quarter
-    synonyms: ['fq', 'quarter']
+    display_name: Fiscal Quarter
+    synonyms:
+      - fq
+      - quarter
   - name: segment
-    display_name: "Segment"
     expr: segment_code
-    comment: "Helios business segment (HAD / HPA / HSB / HET / CORP)."
-    synonyms: ['business segment', 'division', 'business unit']
+    comment: business segment (AD / PA / SB / ET / CORP).
+    display_name: Segment
+    synonyms:
+      - business segment
+      - division
+      - business unit
   - name: category_primary
-    display_name: "Category Primary"
     expr: true_category_primary
-    comment: "Parent spend category (8-way taxonomy)."
-    synonyms: ['spend category', 'parent category', 'category']
+    comment: Parent spend category (8-way taxonomy).
+    display_name: Category Primary
+    synonyms:
+      - spend category
+      - parent category
+      - category
   - name: category_secondary
-    display_name: "Category Secondary"
     expr: true_category_secondary
-    comment: "Leaf spend category (30-way taxonomy)."
-    synonyms: ['leaf category', 'subcategory']
+    comment: Leaf spend category (30-way taxonomy).
+    display_name: Category Secondary
+    synonyms:
+      - leaf category
+      - subcategory
   - name: addressability
-    display_name: "Addressability"
     expr: addressability
-    comment: "Addressable (sourcing can act) vs Non-Addressable (regulated supplier)."
-    synonyms: ['addressable']
+    comment: Addressable (sourcing can act) vs Non-Addressable (regulated supplier).
+    display_name: Addressability
+    synonyms:
+      - addressable
   - name: direct_or_indirect
-    display_name: "Direct or Indirect"
     expr: direct_indirect
-    synonyms: ['spend type', 'direct vs indirect']
+    display_name: Direct or Indirect
+    synonyms:
+      - spend type
+      - direct vs indirect
   - name: pr_source
-    display_name: "PR Source"
-    expr: COALESCE(pr_source, 'Non-PO Voucher')
-    comment: "Origination channel of the purchase request (Catalog / AribaPortal / ManualSubmission / ProcurementAgent). 'Non-PO Voucher' = direct voucher with no PR."
-    synonyms: ['origination channel', 'purchase channel', 'requisition source']
+    expr: "COALESCE(pr_source, 'Non-PO Voucher')"
+    comment: Origination channel of the purchase request (Catalog / AribaPortal /
+      ManualSubmission / ProcurementAgent). 'Non-PO Voucher' = direct voucher with
+      no PR.
+    display_name: PR Source
+    synonyms:
+      - origination channel
+      - purchase channel
+      - requisition source
+  - name: is_managed
+    expr: contract_id IS NOT NULL OR sourcing_event_id IS NOT NULL
+    display_name: Managed Flag
+    synonyms:
+      - managed spend indicator
   - name: managed_status
-    display_name: "Managed Status"
-    expr: >-
+    expr: |-
       CASE WHEN contract_id IS NOT NULL AND sourcing_event_id IS NOT NULL THEN 'Contracted & Sourced'
            WHEN contract_id IS NOT NULL THEN 'Contracted only'
            WHEN sourcing_event_id IS NOT NULL THEN 'Sourced only'
            ELSE 'Unmanaged' END
-    comment: "Sourcing-management quadrant from document lineage: both, contract-only, sourced-only, or unmanaged tail."
-    synonyms: ['management status', 'sourcing status']
+    comment: "Sourcing-management quadrant from document lineage: both, contract-only,\
+      \ sourced-only, or unmanaged tail."
+    display_name: Managed Status
+    synonyms:
+      - management status
   - name: supplier_id
-    display_name: "Supplier Id"
     expr: supplier_id
+    display_name: Supplier Id
   - name: supplier_name
-    display_name: "Supplier Name"
     expr: supplier_name
-    synonyms: ['supplier', 'vendor']
+    display_name: Supplier Name
+    synonyms:
+      - supplier
+      - vendor
   - name: supplier_region
-    display_name: "Supplier Region"
     expr: supplier_region
-    synonyms: ['region']
+    display_name: Supplier Region
+    synonyms:
+      - region
   - name: supplier_category
-    display_name: "Supplier Category"
     expr: supplier_category
-    comment: "Supplier master primary category (carried on fact_invoices from dim_supplier)."
-    synonyms: ['supplier primary category']
+    comment: Supplier master primary category (carried on fact_invoices from dim_supplier).
+    display_name: Supplier Category
+    synonyms:
+      - supplier primary category
   - name: payment_terms
-    display_name: "Payment Terms"
     expr: payment_terms
-    comment: "Invoice payment terms (Net15/30/45/60)."
-    synonyms: ['terms', 'net terms']
+    comment: Invoice payment terms (Net15/30/45/60).
+    display_name: Payment Terms
+    synonyms:
+      - terms
+      - net terms
   - name: is_regulated
-    display_name: "Is Regulated"
     expr: is_regulated_supplier
-    comment: "Regulated supplier (utilities, govt fees, single-source) — not sourcing's to move."
-    synonyms: ['regulated']
+    comment: "Regulated supplier (utilities, govt fees, single-source) — not sourcing's\
+      \ to move."
+    display_name: Is Regulated
+    synonyms:
+      - regulated
+  - name: contract_id
+    expr: contract_id
+    display_name: Contract ID
+
 measures:
   - name: total_spend
-    display_name: "Total Spend"
     expr: SUM(CASE WHEN payment_status = 'PAID' THEN amount ELSE 0 END)
-    comment: "Realized (paid) invoice-line spend."
-    synonyms: ['spend', 'paid spend', 'total paid spend']
+    comment: Realized (paid) invoice-line spend.
+    display_name: Total Spend
     format:
       type: currency
       currency_code: USD
@@ -151,11 +205,15 @@ measures:
         type: exact
         places: 0
       abbreviation: compact
+    synonyms:
+      - spend
+      - paid spend
+      - total paid spend
   - name: addressable_spend
-    display_name: "Addressable Spend"
-    expr: SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' THEN amount ELSE 0 END)
-    comment: "Paid spend with a non-regulated supplier (sourcing can act on it)."
-    synonyms: ['sourceable spend']
+    expr: SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable'
+      THEN amount ELSE 0 END)
+    comment: Paid spend with a non-regulated supplier (sourcing can act on it).
+    display_name: Addressable Spend
     format:
       type: currency
       currency_code: USD
@@ -163,11 +221,15 @@ measures:
         type: exact
         places: 0
       abbreviation: compact
+    synonyms:
+      - sourceable spend
   - name: managed_spend
-    display_name: "Managed Spend"
-    expr: SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' AND (contract_id IS NOT NULL OR sourcing_event_id IS NOT NULL) THEN amount ELSE 0 END)
-    comment: "Addressable paid spend under sourcing management (active contract OR competitively sourced), in dollars."
-    synonyms: ['spend under management', 'managed dollars']
+    expr: SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable'
+      AND (contract_id IS NOT NULL OR sourcing_event_id IS NOT NULL) THEN amount ELSE
+      0 END)
+    comment: "Addressable paid spend under sourcing management (active contract OR\
+      \ competitively sourced), in dollars."
+    display_name: Managed Spend
     format:
       type: currency
       currency_code: USD
@@ -175,11 +237,16 @@ measures:
         type: exact
         places: 0
       abbreviation: compact
+    synonyms:
+      - spend under management
+      - managed dollars
   - name: unmanaged_spend
-    display_name: "Unmanaged Spend"
-    expr: SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' AND NOT (contract_id IS NOT NULL OR sourcing_event_id IS NOT NULL) THEN amount ELSE 0 END)
-    comment: "Addressable paid spend NOT under management (off-contract and not sourced) — the sourcing opportunity / tail, in dollars."
-    synonyms: ['off-contract dollars', 'tail spend dollars', 'leakage']
+    expr: SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable'
+      AND NOT (contract_id IS NOT NULL OR sourcing_event_id IS NOT NULL) THEN amount
+      ELSE 0 END)
+    comment: "Addressable paid spend NOT under management (off-contract and not sourced)\
+      \ — the sourcing opportunity / tail, in dollars."
+    display_name: Unmanaged Spend
     format:
       type: currency
       currency_code: USD
@@ -187,116 +254,180 @@ measures:
         type: exact
         places: 0
       abbreviation: compact
+    synonyms:
+      - off-contract dollars
+      - tail spend dollars
+      - leakage
   - name: managed_spend_pct
-    display_name: "Managed Spend Pct"
-    expr: SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' AND (contract_id IS NOT NULL OR sourcing_event_id IS NOT NULL) THEN amount ELSE 0 END) / NULLIF(SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' THEN amount ELSE 0 END), 0)
-    comment: "Share of addressable paid spend under sourcing management (active contract OR competitively sourced), by dollars. Excludes PO-match."
-    synonyms: ['spend under management', 'managed spend ratio']
+    expr: "SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable'\
+      \ AND (contract_id IS NOT NULL OR sourcing_event_id IS NOT NULL) THEN amount\
+      \ ELSE 0 END) / NULLIF(SUM(CASE WHEN payment_status = 'PAID' AND addressability\
+      \ = 'Addressable' THEN amount ELSE 0 END), 0)"
+    comment: "Share of addressable paid spend under sourcing management (active contract\
+      \ OR competitively sourced), by dollars. Excludes PO-match."
+    display_name: Managed Spend Pct
     format:
       type: percentage
       decimal_places:
         type: max
         places: 1
+    synonyms:
+      - spend under management
+      - managed spend ratio
   - name: managed_spend_pct_count
-    display_name: "Managed Spend Pct (count)"
-    expr: SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' AND (contract_id IS NOT NULL OR sourcing_event_id IS NOT NULL) THEN 1 ELSE 0 END) / NULLIF(SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' THEN 1 ELSE 0 END), 0)
-    comment: "Managed share by invoice-line COUNT (not dollars). Lower than the dollar share — managed spend concentrates in a few large buys."
-    synonyms: ['managed by count', 'managed line share']
+    expr: "SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable'\
+      \ AND (contract_id IS NOT NULL OR sourcing_event_id IS NOT NULL) THEN 1 ELSE\
+      \ 0 END) / NULLIF(SUM(CASE WHEN payment_status = 'PAID' AND addressability =\
+      \ 'Addressable' THEN 1 ELSE 0 END), 0)"
+    comment: Managed share by invoice-line COUNT (not dollars). Lower than the dollar
+      share — managed spend concentrates in a few large buys.
+    display_name: Managed Spend Pct (count)
     format:
       type: percentage
       decimal_places:
         type: max
         places: 1
+    synonyms:
+      - managed by count
+      - managed line share
   - name: contract_coverage_pct
-    display_name: "Contract Coverage Pct"
-    expr: SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' AND contract_id IS NOT NULL THEN amount ELSE 0 END) / NULLIF(SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' THEN amount ELSE 0 END), 0)
-    comment: "Share of addressable paid spend on a line linked to a contract (by dollars)."
-    synonyms: ['contracted spend ratio', 'contract penetration']
+    expr: "SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable'\
+      \ AND contract_id IS NOT NULL THEN amount ELSE 0 END) / NULLIF(SUM(CASE WHEN\
+      \ payment_status = 'PAID' AND addressability = 'Addressable' THEN amount ELSE\
+      \ 0 END), 0)"
+    comment: Share of addressable paid spend on a line linked to a contract (by dollars).
+    display_name: Contract Coverage Pct
     format:
       type: percentage
       decimal_places:
         type: max
         places: 1
+    synonyms:
+      - contracted spend ratio
+      - contract penetration
   - name: contract_coverage_pct_count
-    display_name: "Contract Coverage Pct (count)"
-    expr: SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' AND contract_id IS NOT NULL THEN 1 ELSE 0 END) / NULLIF(SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' THEN 1 ELSE 0 END), 0)
-    comment: "Contract coverage by invoice-line COUNT — markedly lower than the dollar share."
-    synonyms: ['contract coverage by count']
+    expr: "SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable'\
+      \ AND contract_id IS NOT NULL THEN 1 ELSE 0 END) / NULLIF(SUM(CASE WHEN payment_status\
+      \ = 'PAID' AND addressability = 'Addressable' THEN 1 ELSE 0 END), 0)"
+    comment: Contract coverage by invoice-line COUNT — markedly lower than the dollar
+      share.
+    display_name: Contract Coverage Pct (count)
     format:
       type: percentage
       decimal_places:
         type: max
         places: 1
+    synonyms:
+      - contract coverage by count
   - name: sourced_pct
-    display_name: "Sourced Pct"
-    expr: SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' AND sourcing_event_id IS NOT NULL THEN amount ELSE 0 END) / NULLIF(SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' THEN amount ELSE 0 END), 0)
-    comment: "Share of addressable paid spend with a supplier won through a competitive sourcing event."
-    synonyms: ['competitively sourced ratio']
+    expr: "SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable'\
+      \ AND sourcing_event_id IS NOT NULL THEN amount ELSE 0 END) / NULLIF(SUM(CASE\
+      \ WHEN payment_status = 'PAID' AND addressability = 'Addressable' THEN amount\
+      \ ELSE 0 END), 0)"
+    comment: Share of addressable paid spend with a supplier won through a competitive
+      sourcing event.
+    display_name: Sourced Pct
     format:
       type: percentage
       decimal_places:
         type: max
         places: 1
+    synonyms:
+      - competitively sourced ratio
   - name: po_coverage_pct
-    display_name: "PO Coverage Pct"
-    expr: SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' AND po_matched_flag = 'Y' THEN amount ELSE 0 END) / NULLIF(SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' THEN amount ELSE 0 END), 0)
-    comment: "3-way-match / PO coverage — AP hygiene. NOT a spend-management metric."
-    synonyms: ['po match rate', 'three way match rate']
+    expr: "SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable'\
+      \ AND po_matched_flag = 'Y' THEN amount ELSE 0 END) / NULLIF(SUM(CASE WHEN payment_status\
+      \ = 'PAID' AND addressability = 'Addressable' THEN amount ELSE 0 END), 0)"
+    comment: 3-way-match / PO coverage — AP hygiene. NOT a spend-management metric.
+    display_name: PO Coverage Pct
     format:
       type: percentage
       decimal_places:
         type: max
         places: 1
+    synonyms:
+      - po match rate
+      - three way match rate
   - name: classified_spend_pct
-    display_name: "Classified Spend Pct"
-    expr: SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' AND predicted_secondary_category IS NOT NULL THEN amount ELSE 0 END) / NULLIF(SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable' THEN amount ELSE 0 END), 0)
-    comment: "Share of addressable paid spend with an ML-predicted category. NULL until the classification job runs."
-    synonyms: ['ml coverage', 'classification coverage']
+    expr: "SUM(CASE WHEN payment_status = 'PAID' AND addressability = 'Addressable'\
+      \ AND predicted_secondary_category IS NOT NULL THEN amount ELSE 0 END) / NULLIF(SUM(CASE\
+      \ WHEN payment_status = 'PAID' AND addressability = 'Addressable' THEN amount\
+      \ ELSE 0 END), 0)"
+    comment: Share of addressable paid spend with an ML-predicted category. NULL until
+      the classification job runs.
+    display_name: Classified Spend Pct
     format:
       type: percentage
       decimal_places:
         type: max
         places: 1
+    synonyms:
+      - ml coverage
+      - classification coverage
   - name: on_time_payment_pct
-    display_name: "On-Time Payment Pct"
-    expr: SUM(CASE WHEN payment_status = 'PAID' AND is_on_time_payment THEN amount ELSE 0 END) / NULLIF(SUM(CASE WHEN payment_status = 'PAID' THEN amount ELSE 0 END), 0)
-    comment: "Spend-weighted share of paid spend settled on or before the due date."
-    synonyms: ['otp', 'on time payment rate']
+    expr: "SUM(CASE WHEN payment_status = 'PAID' AND is_on_time_payment THEN amount\
+      \ ELSE 0 END) / NULLIF(SUM(CASE WHEN payment_status = 'PAID' THEN amount ELSE\
+      \ 0 END), 0)"
+    comment: Spend-weighted share of paid spend settled on or before the due date.
+    display_name: On-Time Payment Pct
     format:
       type: percentage
       decimal_places:
         type: max
         places: 1
+    synonyms:
+      - otp
+      - on time payment rate
   - name: invoice_count
-    display_name: "Invoice Count"
     expr: SUM(CASE WHEN payment_status = 'PAID' THEN 1 ELSE 0 END)
-    comment: "Count of paid invoice lines."
-    synonyms: ['invoices', 'line count']
+    comment: Count of paid invoice lines.
+    display_name: Invoice Count
     format:
       type: number
       decimal_places:
         type: exact
         places: 0
+    synonyms:
+      - invoices
+      - line count
   - name: avg_dpo
-    display_name: "Avg DPO"
     expr: AVG(CASE WHEN payment_status = 'PAID' THEN days_to_pay END)
-    comment: "Average days payable outstanding across paid lines."
-    synonyms: ['days payable outstanding', 'payment days']
+    comment: Average days payable outstanding across paid lines.
+    display_name: Avg DPO
     format:
       type: number
       decimal_places:
         type: max
         places: 1
+    synonyms:
+      - days payable outstanding
+      - payment days
   - name: measured_maverick_pct
-    display_name: "Measured Maverick Pct"
-    expr: SUM(CASE WHEN payment_status = 'PAID' AND NOT (contract_id IS NOT NULL OR sourcing_event_id IS NOT NULL) THEN amount ELSE 0 END) / NULLIF(SUM(CASE WHEN payment_status = 'PAID' THEN amount ELSE 0 END), 0)
-    comment: "Share of paid spend NOT under management (off-contract and not sourced) — observed maverick/tail spend."
-    synonyms: ['maverick spend ratio', 'off-contract spend', 'tail spend']
+    expr: "SUM(CASE WHEN payment_status = 'PAID' AND NOT (contract_id IS NOT NULL\
+      \ OR sourcing_event_id IS NOT NULL) THEN amount ELSE 0 END) / NULLIF(SUM(CASE\
+      \ WHEN payment_status = 'PAID' THEN amount ELSE 0 END), 0)"
+    comment: Share of paid spend NOT under management (off-contract and not sourced)
+      — observed maverick/tail spend.
+    display_name: Measured Maverick Pct
     format:
       type: percentage
       decimal_places:
         type: max
         places: 1
+    synonyms:
+      - maverick spend ratio
+      - off-contract spend
+      - tail spend
+  - name: active_supplier_count
+    expr: COUNT(DISTINCT contract_id)
+    display_name: Active Supplier Count
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+    synonyms:
+      - active suppliers
 $$
 """
 

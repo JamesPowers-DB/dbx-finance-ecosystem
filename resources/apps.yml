@@ -1,13 +1,13 @@
 resources:
   apps:
-    helios_sourcing_portal:
-      name: helios-sourcing-portal-${bundle.target}
+    spend_analytics:
+      name: spend-analytics-${bundle.target}
       description: >
-        Helios Strategic Sourcing Portal — contract burn-down, supplier performance,
+        Strategic Spend Analytics — contract burn-down, supplier performance,
         cost savings tracking, procurement chatbot, and spend labeling monitor.
         Reads from Unity Catalog gold/silver/ml tables via OBO auth. App state
         (chatbot history + manual avoidance entries) persists in Lakebase Postgres.
-      source_code_path: ${workspace.file_path}/apps/helios-sourcing-portal
+      source_code_path: ${workspace.file_path}/apps/spend-analytics
 
       resources:
         - name: warehouse

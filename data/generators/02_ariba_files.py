@@ -87,7 +87,7 @@ def build_supplier_master() -> pl.DataFrame:
     ersda = (today_np - days_ago.astype("timedelta64[D]")).astype("datetime64[D]")
 
     seg_affinity = rng.choice(
-        ["HAD", "HPA", "HSB", "HET", "CROSS"],
+        ["AD", "PA", "SB", "ET", "CROSS"],
         size=N_SUPPLIERS, p=[0.25, 0.25, 0.15, 0.15, 0.20],
     )
 
@@ -152,7 +152,7 @@ supplier_affinity = suppliers_df["_industry_segment_affinity"].to_numpy()
 
 SUPPLIER_IDX_BY_AFFINITY = {
     seg: np.where(supplier_affinity == seg)[0]
-    for seg in ["HAD", "HPA", "HSB", "HET", "CROSS"]
+    for seg in ["AD", "PA", "SB", "ET", "CROSS"]
 }
 # supplier_id -> maverick propensity (used to tilt PR source toward ManualSubmission)
 maverick_by_id = dict(zip(supplier_ids, supplier_maverick))
@@ -424,7 +424,7 @@ def generate_quarter(fy: int, fq: int):
     pr_lines: List[Dict] = []
     next_pr_seq = 0  # within this quarter
 
-    bukrs_by_seg = {s["code"]: s["company_code"] for s in HELIOS_SEGMENTS}
+    bukrs_by_seg = {s["code"]: s["company_code"] for s in SEGMENTS}
 
     for seg in SEGMENT_CODES:
         target_spend = (anchor_metric(anchors, fy, fq, seg, "cogs")

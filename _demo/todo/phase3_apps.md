@@ -1,10 +1,10 @@
 # Phase 3 — Apps & Agents
 
-**Application:** Strategic Sourcing Portal — a Databricks App for Helios' sourcing org. Single-page FastAPI + Vite/React/TS app reading `<catalog>.gold.*` / `silver.*` / `ml.*` via OBO, writing app state to Lakebase, and using FMAPI + Genie for the procurement chatbot.
+**Application:** Strategic Sourcing Portal — a Databricks App for ' sourcing org. Single-page FastAPI + Vite/React/TS app reading `<catalog>.gold.*` / `silver.*` / `ml.*` via OBO, writing app state to Lakebase, and using FMAPI + Genie for the procurement chatbot.
 
-- **Live (dev):** `https://helios-sourcing-portal-dev-1444828305810485.aws.databricksapps.com`
-- **Source:** `apps/helios-sourcing-portal/` (FastAPI backend + Vite/React frontend, ~77 deployed files)
-- **Bundle resource:** `resources/apps.yml` → `helios-sourcing-portal-${bundle.target}`
+- **Live (dev):** `https://spend-analytics-dev-1444828305810485.aws.databricksapps.com`
+- **Source:** `apps/spend-analytics/` (FastAPI backend + Vite/React frontend, ~77 deployed files)
+- **Bundle resource:** `resources/apps.yml` → `spend-analytics-${bundle.target}`
 
 Session logs: [2026-05-21 chatbot/Genie hardening](../updates/20260521_chatbot_genie_hardening.md) · [2026-05-27 AM tightening + tooltips](../updates/20260527a_procurement_tightening_metric_tooltips.md) · [2026-05-27 PM bugfixes](../updates/20260527b_live_testing_bugfixes.md) · [2026-05-27 chatbot UX](../updates/20260527c_chatbot_ux_polish.md)
 
@@ -62,7 +62,7 @@ All 5 render with real data. Home KPIs warehouse-verified: **Total Spend $2.91B*
 `apps update` **replaces** (not merges) `user_api_scopes` and `resources` — always pass the complete JSON:
 
 ```bash
-databricks apps update helios-sourcing-portal-dev \
+databricks apps update spend-analytics-dev \
   --profile e2-demo-field-eng \
   --json '{
     "user_api_scopes": ["sql", "postgres", "serving.serving-endpoints", "dashboards.genie"],
@@ -81,11 +81,11 @@ databricks apps update helios-sourcing-portal-dev \
 
 ### Deploy commands (direct CLI — bundle update-mask bug workaround)
 ```bash
-cd apps/helios-sourcing-portal/frontend && npm run build
+cd apps/spend-analytics/frontend && npm run build
 cd ../../..
 databricks bundle deploy --target dev --profile e2-demo-field-eng --var warehouse_id=e9b34f7a2e4b0561
-databricks apps deploy helios-sourcing-portal-dev \
-  --source-code-path "/Workspace/Users/michael.goo@databricks.com/.bundle/dbx-finance-ecosystem/dev/files/apps/helios-sourcing-portal" \
+databricks apps deploy spend-analytics-dev \
+  --source-code-path "/Workspace/Users/michael.goo@databricks.com/.bundle/dbx-finance-ecosystem/dev/files/apps/spend-analytics" \
   --profile e2-demo-field-eng
 ```
 > `bundle deploy` errors on catalog/pipeline/volume "already exists" + app "Invalid update mask" are harmless; the `apps deploy` step is the actual redeploy.
@@ -115,7 +115,7 @@ databricks apps deploy helios-sourcing-portal-dev \
 - (d) Contracts → click contract → Summary tab burn-down (e.g. `CW-02000851` ≈ $653k FY25 Q3→FY26 Q2) or empty-state.
 - (e) Suppliers → scorecard row-click opens Summary/Contracts/Trend panel.
 - (f) Log avoidance → Approve → "Total Avoidance" KPI updates, "Pending" decrements.
-- (g) Chatbot → "Helios is thinking…" bubble within ~16ms → "ran 1 tool…" → streamed answer.
+- (g) Chatbot → "is thinking…" bubble within ~16ms → "ran 1 tool…" → streamed answer.
 - (h) Analytics prompt → `ask_genie` card shows `Question:` (no raw JSON) + SQL + real row count.
 - (i) "remaining budget for HET FY26 Q1" → Budget $188.77M / Paid $149.56M / Remaining $39.21M.
 

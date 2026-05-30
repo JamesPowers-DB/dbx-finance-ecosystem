@@ -1,0 +1,1420 @@
+{
+  "datasets": [
+    {
+      "name": "ds_pareto",
+      "displayName": "Supplier Pareto (T12M)",
+      "queryLines": [
+        "WITH base AS (\n",
+        "  SELECT supplier_name, MEASURE(total_spend) AS spend\n",
+        "  FROM mv_spend\n",
+        "  GROUP BY supplier_name\n",
+        "),\n",
+        "ranked AS (\n",
+        "  SELECT\n",
+        "    supplier_name,\n",
+        "    spend,\n",
+        "    SUM(spend) OVER (ORDER BY spend DESC, supplier_name) AS running_sum,\n",
+        "    SUM(spend) OVER () AS total_spend\n",
+        "  FROM base\n",
+        ")\n",
+        "SELECT\n",
+        "  supplier_name,\n",
+        "  spend,\n",
+        "  running_sum AS running_spend,\n",
+        "  running_sum / total_spend AS cumulative_pct\n",
+        "FROM ranked\n",
+        "ORDER BY spend DESC, supplier_name;"
+      ]
+    },
+    {
+      "name": "81e581c7",
+      "displayName": "mv_spend",
+      "asset_name": "mv_spend"
+    }
+  ],
+  "pages": [
+    {
+      "name": "spend_visibility",
+      "displayName": "Spend Visibility",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Strategic Spend Analytics - End-to-End Spend Visibility"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "subtitle",
+            "multilineTextboxSpec": {
+              "lines": [
+                "Operational view of spend across the lifecycle (source/contract → request → order → invoice → paid). Every number resolves from the governed Unity Catalog metric views (gold.mv_spend, gold.mv_supplier_performance) — one source of truth, monthly grain."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_total",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "81e581c7",
+                  "fields": [
+                    {
+                      "name": "monthly(invoice_date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `invoice_date`)"
+                    },
+                    {
+                      "name": "measure(total_spend)",
+                      "expression": "MEASURE(`total_spend`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "DATE_TRUNC(\"MONTH\", `invoice_date`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Total Spend"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(total_spend)",
+                  "displayName": "Total Spend ($B)"
+                },
+                "period": {
+                  "fieldName": "monthly(invoice_date)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_managed",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "81e581c7",
+                  "fields": [
+                    {
+                      "name": "monthly(invoice_date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `invoice_date`)"
+                    },
+                    {
+                      "name": "measure(unmanaged_spend)",
+                      "expression": "MEASURE(`unmanaged_spend`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "DATE_TRUNC(\"MONTH\", `invoice_date`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Managed Spend %"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(unmanaged_spend)",
+                  "style": {
+                    "rules": [
+                      {
+                        "condition": {
+                          "operator": ">="
+                        },
+                        "color": "#00A972"
+                      }
+                    ]
+                  },
+                  "displayName": "Managed Spend %"
+                },
+                "period": {
+                  "fieldName": "monthly(invoice_date)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_maverick",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "81e581c7",
+                  "fields": [
+                    {
+                      "name": "invoice_date",
+                      "expression": "`invoice_date`"
+                    },
+                    {
+                      "name": "measure(avg_dpo)",
+                      "expression": "MEASURE(`avg_dpo`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "`invoice_date`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Average Days-to-Pay"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(avg_dpo)",
+                  "displayName": "Maverick %"
+                },
+                "period": {
+                  "fieldName": "invoice_date"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_ontime",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "81e581c7",
+                  "fields": [
+                    {
+                      "name": "monthly(payment_date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `payment_date`)"
+                    },
+                    {
+                      "name": "measure(on_time_payment_pct)",
+                      "expression": "MEASURE(`on_time_payment_pct`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "DATE_TRUNC(\"MONTH\", `payment_date`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Avg. On Time Payment"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(on_time_payment_pct)",
+                  "displayName": "On-Time Pay %"
+                },
+                "period": {
+                  "fieldName": "monthly(payment_date)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_vendors",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "81e581c7",
+                  "fields": [
+                    {
+                      "name": "weekly(payment_date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `payment_date`)"
+                    },
+                    {
+                      "name": "measure(active_supplier_count)",
+                      "expression": "MEASURE(`active_supplier_count`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "DATE_TRUNC(\"WEEK\", `payment_date`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Active Vendors"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(active_supplier_count)",
+                  "displayName": "Active Vendors"
+                },
+                "period": {
+                  "fieldName": "weekly(payment_date)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 10,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_avgvendor",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "81e581c7",
+                  "fields": [
+                    {
+                      "name": "monthly(invoice_date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `invoice_date`)"
+                    },
+                    {
+                      "name": "measure(addressable_spend)",
+                      "expression": "MEASURE(`addressable_spend`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "DATE_TRUNC(\"MONTH\", `invoice_date`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Addressable Spend"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(addressable_spend)",
+                  "displayName": "Avg $/Vendor ($M)"
+                },
+                "period": {
+                  "fieldName": "monthly(invoice_date)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "hdr_trend",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Trend — monthly spend with the managed-% overlay (is the rate holding?)"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "trend_combo",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "81e581c7",
+                  "fields": [
+                    {
+                      "name": "weekly(invoice_date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `invoice_date`)"
+                    },
+                    {
+                      "name": "measure(total_spend)",
+                      "expression": "MEASURE(`total_spend`)"
+                    },
+                    {
+                      "name": "measure(managed_spend_pct)",
+                      "expression": "MEASURE(`managed_spend_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "frame": {
+                "showTitle": true,
+                "title": "Monthly spend ($) & managed % (last 18 months)"
+              },
+              "mark": {
+                "colors": [
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 4
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 3
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 4
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 5
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 6
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 7
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 8
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 9
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 10
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 11
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 12
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 13
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 14
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 15
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  }
+                ]
+              },
+              "widgetType": "combo",
+              "encodings": {
+                "label": {
+                  "show": false
+                },
+                "y": {
+                  "primary": {
+                    "fields": [
+                      {
+                        "fieldName": "measure(total_spend)",
+                        "displayName": "Spend ($)"
+                      }
+                    ],
+                    "scale": {
+                      "type": "quantitative"
+                    }
+                  },
+                  "secondary": {
+                    "fields": [
+                      {
+                        "fieldName": "measure(managed_spend_pct)",
+                        "displayName": "Managed %"
+                      }
+                    ],
+                    "scale": {
+                      "type": "quantitative"
+                    }
+                  }
+                },
+                "x": {
+                  "fieldName": "weekly(invoice_date)",
+                  "displayName": "Month",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 5,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "hdr_conc",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Concentration & Category "
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "pareto_combo",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_pareto",
+                  "fields": [
+                    {
+                      "name": "sum(cumulative_pct)",
+                      "expression": "SUM(`cumulative_pct`)"
+                    },
+                    {
+                      "name": "supplier_name",
+                      "expression": "`supplier_name`"
+                    },
+                    {
+                      "name": "sum(running_spend)",
+                      "expression": "SUM(`running_spend`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Supplier Pareto (Tail Spend Analysis)"
+              },
+              "mark": {
+                "colors": [
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 3
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 4
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 5
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 6
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 7
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 8
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 9
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 10
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 11
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 12
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 13
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 14
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 15
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  }
+                ]
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "supplier_name",
+                  "displayName": "Supplier",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(running_spend)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "sum(cumulative_pct)",
+                  "legend": {
+                    "hide": true
+                  },
+                  "scale": {
+                    "type": "quantitative",
+                    "reverse": true
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 21,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "category_combo",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "81e581c7",
+                  "fields": [
+                    {
+                      "name": "measure(managed_spend)",
+                      "expression": "MEASURE(`managed_spend`)"
+                    },
+                    {
+                      "name": "measure(addressable_spend)",
+                      "expression": "MEASURE(`addressable_spend`)"
+                    },
+                    {
+                      "name": "category_primary",
+                      "expression": "`category_primary`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "By category: unmanaged vs managed $, with managed %"
+              },
+              "mark": {
+                "colors": [
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 1
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 5
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 6
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 7
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 8
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 9
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 10
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 11
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 12
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 13
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 14
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 15
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 15
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  }
+                ],
+                "size": 1.4
+              },
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "measure(managed_spend)",
+                      "displayName": "Managed ($)"
+                    },
+                    {
+                      "fieldName": "measure(addressable_spend)"
+                    }
+                  ]
+                },
+                "y": {
+                  "fieldName": "category_primary",
+                  "displayName": "Category",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "color": {
+                  "legend": {
+                    "position": "top"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 18,
+            "width": 4,
+            "height": 9
+          }
+        },
+        {
+          "widget": {
+            "name": "hdr_mix",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Drivers & Vendor Mix: \n",
+                "\n",
+                "## Channels leak, and the tail to rationalize"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "hdr_act",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Managed-status mix and the highest-leverage suppliers"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 27,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "levers_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "81e581c7",
+                  "fields": [
+                    {
+                      "name": "supplier_name",
+                      "expression": "`supplier_name`"
+                    },
+                    {
+                      "name": "pr_source",
+                      "expression": "`pr_source`"
+                    },
+                    {
+                      "name": "direct_or_indirect",
+                      "expression": "`direct_or_indirect`"
+                    },
+                    {
+                      "name": "category_primary",
+                      "expression": "`category_primary`"
+                    },
+                    {
+                      "name": "is_managed",
+                      "expression": "`is_managed`"
+                    },
+                    {
+                      "name": "measure(managed_spend)",
+                      "expression": "MEASURE(`managed_spend`)"
+                    }
+                  ],
+                  "cubeGroupingSets": {
+                    "sets": [
+                      {
+                        "fieldNames": [
+                          "supplier_name",
+                          "pr_source",
+                          "direct_or_indirect",
+                          "category_primary"
+                        ]
+                      },
+                      {
+                        "fieldNames": [
+                          "is_managed"
+                        ]
+                      }
+                    ]
+                  },
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "ASC",
+                      "expression": "`supplier_name`"
+                    },
+                    {
+                      "direction": "ASC",
+                      "expression": "`pr_source`"
+                    },
+                    {
+                      "direction": "ASC",
+                      "expression": "`direct_or_indirect`"
+                    },
+                    {
+                      "direction": "ASC",
+                      "expression": "`category_primary`"
+                    },
+                    {
+                      "direction": "ASC",
+                      "expression": "`is_managed`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Highest-leverage suppliers (large spend × high off-contract %)"
+              },
+              "widgetType": "pivot",
+              "encodings": {
+                "rows": [
+                  {
+                    "fieldName": "supplier_name",
+                    "displayName": "Supplier"
+                  },
+                  {
+                    "fieldName": "pr_source"
+                  },
+                  {
+                    "fieldName": "direct_or_indirect"
+                  },
+                  {
+                    "fieldName": "category_primary"
+                  }
+                ],
+                "columns": [
+                  {
+                    "fieldName": "is_managed"
+                  }
+                ],
+                "cell": {
+                  "type": "multi-cell",
+                  "fields": [
+                    {
+                      "fieldName": "measure(managed_spend)",
+                      "cellType": "text"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 28,
+            "width": 8,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "pr-source-obyu",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "81e581c7",
+                  "fields": [
+                    {
+                      "name": "weekly(invoice_date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `invoice_date`)"
+                    },
+                    {
+                      "name": "measure(total_spend)",
+                      "expression": "MEASURE(`total_spend`)"
+                    },
+                    {
+                      "name": "measure(managed_spend_pct)",
+                      "expression": "MEASURE(`managed_spend_pct`)"
+                    },
+                    {
+                      "name": "pr_source",
+                      "expression": "`pr_source`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "facet": {
+                "type": "wrap",
+                "fieldName": "pr_source",
+                "layout": {
+                  "row": {
+                    "type": "count",
+                    "value": 3
+                  },
+                  "column": {
+                    "type": "count",
+                    "value": 2
+                  }
+                },
+                "scale": {
+                  "type": "categorical"
+                }
+              },
+              "version": 1,
+              "mark": {
+                "colors": [
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 5
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 3
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 4
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 5
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 6
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 7
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 8
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 9
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 10
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 11
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 12
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 13
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 14
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 15
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Managed Spend by "
+              },
+              "widgetType": "combo",
+              "encodings": {
+                "label": {
+                  "show": false
+                },
+                "y": {
+                  "primary": {
+                    "fields": [
+                      {
+                        "fieldName": "measure(total_spend)",
+                        "displayName": "Spend ($)"
+                      }
+                    ],
+                    "scale": {
+                      "type": "quantitative",
+                      "reverse": false
+                    },
+                    "axis": {
+                      "hideTitle": true
+                    }
+                  },
+                  "secondary": {
+                    "fields": [
+                      {
+                        "fieldName": "measure(managed_spend_pct)",
+                        "displayName": "Managed %"
+                      }
+                    ],
+                    "scale": {
+                      "type": "quantitative"
+                    },
+                    "axis": {
+                      "hideTitle": true
+                    }
+                  }
+                },
+                "x": {
+                  "fieldName": "weekly(invoice_date)",
+                  "displayName": "Month",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "color": {
+                  "legend": {
+                    "hide": true,
+                    "position": "top"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 6,
+            "width": 7,
+            "height": 11
+          }
+        },
+        {
+          "widget": {
+            "name": "ceb32f13",
+            "multilineTextboxSpec": {
+              "lines": [
+                "**Managed Spend** is the share of *addressable, paid* spend under active sourcing governance — dollars deliberately put on a contract or competitively bid — versus the unmanaged tail that leaks off-contract.\n",
+                "\n",
+                "Flagging logic:\n",
+                "\n",
+                "- **paid** (`payment_status='PAID'`)\n",
+                "- **addressable** (excludes regulated/single-source suppliers)\n",
+                "- **contracted** (`contract_id IS NOT NULL`)\n",
+                "- **sourced** (`sourcing_event_id IS NOT NULL`)\n",
+                "\n",
+                "```py\n",
+                "MANAGED = CONTRACTED OR SOURCED\n",
+                "```"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 5,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "69b27688",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "81e581c7",
+                  "fields": [
+                    {
+                      "name": "measure(managed_spend)",
+                      "expression": "MEASURE(`managed_spend`)"
+                    },
+                    {
+                      "name": "measure(addressable_spend)",
+                      "expression": "MEASURE(`addressable_spend`)"
+                    },
+                    {
+                      "name": "supplier_name",
+                      "expression": "`supplier_name`"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "MEASURE(`addressable_spend`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "By Supplier: Managed vs Addressable Spend"
+              },
+              "mark": {
+                "colors": [
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 1
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 5
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 6
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 7
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 8
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 9
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 10
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 11
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 12
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 13
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 14
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 15
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 15
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  }
+                ],
+                "size": 1.4
+              },
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "measure(managed_spend)",
+                      "displayName": "Managed ($)"
+                    },
+                    {
+                      "fieldName": "measure(addressable_spend)"
+                    }
+                  ]
+                },
+                "y": {
+                  "fieldName": "supplier_name",
+                  "displayName": "Category",
+                  "scale": {
+                    "type": "categorical",
+                    "categorySize": {
+                      "type": "number-of-categories",
+                      "number": 20
+                    },
+                    "sort": {
+                      "by": "measure-reversed",
+                      "measure": {
+                        "fieldName": "measure(addressable_spend)"
+                      }
+                    }
+                  }
+                },
+                "color": {
+                  "legend": {
+                    "position": "top"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 18,
+            "width": 5,
+            "height": 9
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F9F7F4",
+        "dark": "#5A6F77"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#303F47"
+      },
+      "widgetBorderColor": {
+        "light": "#DCE0E2",
+        "dark": "#5A6F77"
+      },
+      "fontColor": {
+        "light": "#1B3139",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#FF3621",
+        "dark": "#FF3621"
+      },
+      "visualizationColors": [
+        "#FF3621",
+        "#801C17",
+        "#5A1410",
+        "#CC2B1A",
+        "#E0654F",
+        "#FABFBA",
+        "#A0271A",
+        "#5A6F77",
+        "#C4CCD6",
+        "#303F47",
+        "#FF3621",
+        "#FFAB00",
+        "#00A972",
+        "#99DDB4",
+        "#BAE1FC",
+        "#4299E0"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    },
+    "applyModeEnabled": false
+  }
+}

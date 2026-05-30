@@ -1,6 +1,8 @@
 # dbx-finance-ecosystem
 
-Helios Industrial Group — a filing-anchored, fully anonymized finance data ecosystem demo. Wave 1 horizontal GTM (F-1 Spend Visibility & Strategic Sourcing Intelligence). Target: dbdemos Gold-tier.
+**Strategic Spend Analytics** — end-to-end **spend visibility** on Databricks. Follow every dollar across the spend lifecycle — *source / contract → request → order → invoice → paid* — and quantify what's under management (contracted or competitively sourced) vs. leaking to the unmanaged tail.
+
+This is a **Databricks-first** demo: the value is the governed lakehouse, not any single UI. Synthetic source-system data is curated by a **Lakeflow** pipeline (bronze→silver→gold), categorized by an **MLflow** spend classifier, and exposed through governed Unity Catalog **Metric Views** that are the single source of truth for every consumption surface — **AI/BI dashboards**, an **AI/BI Genie** Space ("talk to your spend"), and an auxiliary **Databricks App** (FastAPI + React, OBO) that stores its state in **Lakebase**. Data is fully synthetic, anchored to hand-curated period anchors (1/10-scaled from a reference public industrial conglomerate's filings) — no real entity.
 
 The authoritative design lives in `_demo/00_design_context.md`. Read that first.
 

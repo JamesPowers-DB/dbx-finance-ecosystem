@@ -46,7 +46,7 @@ GROUP BY ALL
 ORDER BY fiscal_year, fiscal_quarter, status;
 
 -- Section 4 ------------------------------------------------------------------
--- Contract value distribution by Helios segment (outbound / commercial contracts).
+-- Contract value distribution by segment (outbound / commercial contracts).
 SELECT
   segment_code,
   status,

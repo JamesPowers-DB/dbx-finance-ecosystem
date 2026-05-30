@@ -30,27 +30,27 @@ SELECT
   segment_affinity
 FROM VALUES
   -- Direct Materials & Components (12)
-  ('Direct_Materials_Components', 'Direct Materials & Components', 'Aerospace_Components',  'Aerospace Components',  '5000', 'COGS', 'HAD'),
-  ('Direct_Materials_Components', 'Direct Materials & Components', 'Hydraulic_Systems',     'Hydraulic Systems',     '5000', 'COGS', 'HAD'),
-  ('Direct_Materials_Components', 'Direct Materials & Components', 'Composite_Materials',   'Composite Materials',   '5000', 'COGS', 'HAD'),
-  ('Direct_Materials_Components', 'Direct Materials & Components', 'Industrial_Sensors',    'Industrial Sensors',    '5000', 'COGS', 'HPA'),
-  ('Direct_Materials_Components', 'Direct Materials & Components', 'Control_Systems',       'Control Systems',       '5000', 'COGS', 'HPA'),
-  ('Direct_Materials_Components', 'Direct Materials & Components', 'HVAC_Equipment',        'HVAC Equipment',        '5000', 'COGS', 'HSB'),
-  ('Direct_Materials_Components', 'Direct Materials & Components', 'Building_Controls',     'Building Controls',     '5000', 'COGS', 'HSB'),
-  ('Direct_Materials_Components', 'Direct Materials & Components', 'Security_Systems',      'Security Systems',      '5000', 'COGS', 'HSB'),
-  ('Direct_Materials_Components', 'Direct Materials & Components', 'Fire_Suppression',      'Fire Suppression',      '5000', 'COGS', 'HSB'),
-  ('Direct_Materials_Components', 'Direct Materials & Components', 'Solar_Components',      'Solar Components',      '5000', 'COGS', 'HET'),
-  ('Direct_Materials_Components', 'Direct Materials & Components', 'Battery_Materials',     'Battery Materials',     '5000', 'COGS', 'HET'),
-  ('Direct_Materials_Components', 'Direct Materials & Components', 'Power_Electronics',     'Power Electronics',     '5000', 'COGS', 'HET'),
+  ('Direct_Materials_Components', 'Direct Materials & Components', 'Aerospace_Components',  'Aerospace Components',  '5000', 'COGS', 'AD'),
+  ('Direct_Materials_Components', 'Direct Materials & Components', 'Hydraulic_Systems',     'Hydraulic Systems',     '5000', 'COGS', 'AD'),
+  ('Direct_Materials_Components', 'Direct Materials & Components', 'Composite_Materials',   'Composite Materials',   '5000', 'COGS', 'AD'),
+  ('Direct_Materials_Components', 'Direct Materials & Components', 'Industrial_Sensors',    'Industrial Sensors',    '5000', 'COGS', 'PA'),
+  ('Direct_Materials_Components', 'Direct Materials & Components', 'Control_Systems',       'Control Systems',       '5000', 'COGS', 'PA'),
+  ('Direct_Materials_Components', 'Direct Materials & Components', 'HVAC_Equipment',        'HVAC Equipment',        '5000', 'COGS', 'SB'),
+  ('Direct_Materials_Components', 'Direct Materials & Components', 'Building_Controls',     'Building Controls',     '5000', 'COGS', 'SB'),
+  ('Direct_Materials_Components', 'Direct Materials & Components', 'Security_Systems',      'Security Systems',      '5000', 'COGS', 'SB'),
+  ('Direct_Materials_Components', 'Direct Materials & Components', 'Fire_Suppression',      'Fire Suppression',      '5000', 'COGS', 'SB'),
+  ('Direct_Materials_Components', 'Direct Materials & Components', 'Solar_Components',      'Solar Components',      '5000', 'COGS', 'ET'),
+  ('Direct_Materials_Components', 'Direct Materials & Components', 'Battery_Materials',     'Battery Materials',     '5000', 'COGS', 'ET'),
+  ('Direct_Materials_Components', 'Direct Materials & Components', 'Power_Electronics',     'Power Electronics',     '5000', 'COGS', 'ET'),
   -- Raw Materials (2)
   ('Raw_Materials',                'Raw Materials',                'Raw_Materials_Metals',   'Raw Materials — Metals',   '5000', 'COGS', 'CROSS'),
   ('Raw_Materials',                'Raw Materials',                'Raw_Materials_Polymers', 'Raw Materials — Polymers', '5000', 'COGS', 'CROSS'),
   -- MRO & Field Services (2)
-  ('MRO_Field_Services',           'MRO & Field Services',          'MRO_Services_Aero',     'MRO Services — Aero',      '5030', 'COGS', 'HAD'),
-  ('MRO_Field_Services',           'MRO & Field Services',          'Calibration_Services',  'Calibration Services',     '5030', 'COGS', 'HPA'),
+  ('MRO_Field_Services',           'MRO & Field Services',          'MRO_Services_Aero',     'MRO Services — Aero',      '5030', 'COGS', 'AD'),
+  ('MRO_Field_Services',           'MRO & Field Services',          'Calibration_Services',  'Calibration Services',     '5030', 'COGS', 'PA'),
   -- Software & Cloud (3)
-  ('Software_Cloud',               'Software & Cloud',              'Process_Software',      'Process Software',         '6040', 'SGA',  'HPA'),
-  ('Software_Cloud',               'Software & Cloud',              'Monitoring_Software',   'Monitoring Software',      '6040', 'SGA',  'HET'),
+  ('Software_Cloud',               'Software & Cloud',              'Process_Software',      'Process Software',         '6040', 'SGA',  'PA'),
+  ('Software_Cloud',               'Software & Cloud',              'Monitoring_Software',   'Monitoring Software',      '6040', 'SGA',  'ET'),
   ('Software_Cloud',               'Software & Cloud',              'Cloud_Infrastructure',  'Cloud Infrastructure',     '6050', 'SGA',  'CROSS'),
   -- IT & Telecom (2)
   ('IT_Telecom',                   'IT & Telecom',                  'IT_Services',           'IT Services',              '6050', 'SGA',  'CROSS'),

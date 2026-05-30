@@ -1,8 +1,8 @@
--- Grant the Helios app service principal access for Genie + analytics (PROD).
+-- Grant the Spend Analytics app service principal access for Genie + analytics (PROD).
 -- Replace `<APP_SP_PRINCIPAL>` with the app SP principal identifier.
 -- Example principal values:
 --   `7810c2cb-5c97-4458-80bb-078604c9b89b`  (application/client id)
---   `app-40zbx9 helios-sourcing-portal-prod` (workspace SP display name)
+--   `app-40zbx9 spend-analytics-prod` (workspace SP display name)
 
 GRANT USE CATALOG ON CATALOG horizontal_finance TO `<APP_SP_PRINCIPAL>`;
 

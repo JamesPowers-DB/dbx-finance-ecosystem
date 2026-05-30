@@ -1,4 +1,4 @@
-# ML — Helios Finance Ecosystem Demo
+# ML — Finance Ecosystem Demo
 
 The headline ML capability of this demo is **automatic spend classification** — given an AP invoice line, predict which of 30 leaf spend categories (rolled up to 8 parent categories) it belongs to. Sourcing organizations use these classifications to consolidate suppliers in high-spend categories, flag maverick (off-pattern) purchases, and focus negotiations where the dollars actually are. The 2-tier taxonomy lets executives roll up ("how much do we spend on Professional Services as a whole?") and lets category managers drill into the leaf for negotiation.
 
@@ -15,7 +15,7 @@ The rest of this doc is the spend-classification model spec.
 
 ## 1. The problem
 
-Helios has hundreds of thousands of AP invoice line items per multi-year window across procurement. Each line is a free-text description plus structured fields — supplier, segment, amount, payment terms, GL account. Today there is **no consistent fine-grained taxonomy**: line items are classified inconsistently across cost centers because:
+has hundreds of thousands of AP invoice line items per multi-year window across procurement. Each line is a free-text description plus structured fields — supplier, segment, amount, payment terms, GL account. Today there is **no consistent fine-grained taxonomy**: line items are classified inconsistently across cost centers because:
 
 - Suppliers often span 2–3 related categories.
 - Category managers tag purchases manually for some categories but not others.
@@ -54,7 +54,7 @@ One row per AP invoice line. Built by the Lakeflow pipeline from Fusion AP (`ap_
 | `true_category_primary` | Parent code (e.g. `Professional_Services`) | 8 classes |
 | `true_category_secondary` | Leaf code (e.g. `Professional_Services_Consulting`) | 30 classes |
 
-> ⚠ **Demo-only ground truth.** These columns **wouldn't exist on real Helios AP data**. They're stamped on the synthetic dataset so the demo can train a supervised classifier against a deterministic label set. In a production engagement the customer would supply a partial manually-curated training set (typically a few thousand hand-labeled invoice lines) and the model would classify the unlabeled majority. The columns ride through `gold.fact_invoices` for demo convenience; the operational data shape would otherwise have `MATGROUP` + `gl_account` + `line_description` only.
+> ⚠ **Demo-only ground truth.** These columns **wouldn't exist on real AP data**. They're stamped on the synthetic dataset so the demo can train a supervised classifier against a deterministic label set. In a production engagement the customer would supply a partial manually-curated training set (typically a few thousand hand-labeled invoice lines) and the model would classify the unlabeled majority. The columns ride through `gold.fact_invoices` for demo convenience; the operational data shape would otherwise have `MATGROUP` + `gl_account` + `line_description` only.
 
 > 🎲 **Realistic recording noise.** Invoice lines have ~8% intra-parent label noise applied at recording time (controlled by `_lib.LABEL_NOISE_RATE`). The line's content (vocabulary, `gl_account`, supplier) stays consistent with the *actual* category, but `true_category_secondary` is swapped to a sibling under the same parent ~8% of the time (Legal ↔ Audit ↔ Consulting; HVAC_Equipment ↔ Building_Controls). PR and PO lines are NOT noised — mis-tagging is modeled where it actually happens in the wild: at GL entry, not procurement intent. This caps leaf-tier accuracy at ~92% on the recorded label; parent-tier accuracy stays near 100% because the noise is intra-parent. The model is meaningfully challenged: it has to learn that `gl_account` + `line_description` sometimes disagree with the recorded label — exactly the signal sourcing organizations want surfaced as "this purchase was mis-coded".
 

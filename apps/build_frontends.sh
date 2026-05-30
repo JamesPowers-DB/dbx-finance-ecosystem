@@ -5,12 +5,12 @@
 #
 # Usage:
 #   ./apps/build_frontends.sh           # build all apps
-#   ./apps/build_frontends.sh helios    # build only helios-sourcing-portal
+#   ./apps/build_frontends.sh spend-analytics    # build only the spend-analytics app
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-APPS=("helios-sourcing-portal")
+APPS=("spend-analytics")
 
 # If an argument is provided, filter to matching app names
 if [ $# -gt 0 ]; then

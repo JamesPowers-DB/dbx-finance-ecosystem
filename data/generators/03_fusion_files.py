@@ -100,11 +100,11 @@ if target is None or not os.path.exists(COA_FILE):
     rng = rng_for("fusion:coa")
     rows = []
     ccid = 100_000
-    entities = [s["company_code"] for s in HELIOS_SEGMENTS] + [HELIOS_CORP_COMPANY_CODE]
+    entities = [s["company_code"] for s in SEGMENTS] + [CORP_COMPANY_CODE]
     seg_codes = SEGMENT_CODES + ["CORP"]
     natural_accts = list(NATURAL_ACCOUNTS.keys())
     products = [f"P{i:03d}" for i in range(30)]
-    intercompany = ["0000"] + [f"{s['company_code']}" for s in HELIOS_SEGMENTS] + [HELIOS_CORP_COMPANY_CODE] + [f"99{i:02d}" for i in range(4)]
+    intercompany = ["0000"] + [f"{s['company_code']}" for s in SEGMENTS] + [CORP_COMPANY_CODE] + [f"99{i:02d}" for i in range(4)]
     for ent_idx, ent in enumerate(entities):
         seg = seg_codes[ent_idx]
         n_cc = COST_CENTERS_PER_SEGMENT if seg != "CORP" else 6
@@ -123,7 +123,7 @@ if target is None or not os.path.exists(COA_FILE):
                     "segment7_future2": "0000",
                     "natural_account_description": NATURAL_ACCOUNTS[acct][0],
                     "natural_account_type": NATURAL_ACCOUNTS[acct][1],
-                    "_helios_segment_code": seg,
+                    "_segment_code": seg,
                     "enabled_flag": "Y",
                 })
                 ccid += 1
@@ -136,7 +136,7 @@ else:
 COA_BY_SEG_TYPE: Dict[Tuple[str, str], np.ndarray] = {}
 for seg in SEGMENT_CODES + ["CORP"]:
     for at in {v[1] for v in NATURAL_ACCOUNTS.values()}:
-        mask = (coa_df["_helios_segment_code"] == seg) & (coa_df["natural_account_type"] == at)
+        mask = (coa_df["_segment_code"] == seg) & (coa_df["natural_account_type"] == at)
         ids = coa_df.filter(mask)["code_combination_id"].to_numpy()
         if len(ids) > 0:
             COA_BY_SEG_TYPE[(seg, at)] = ids
@@ -309,7 +309,7 @@ def generate_quarter_fusion(fy: int, fq: int):
     # ---- 2. Generate POs (one PO per released PR, 1:1 line mapping) --------
     po_headers_rows: List[Dict] = []
     po_lines_rows: List[Dict] = []
-    bukrs_to_seg = {s["company_code"]: s["code"] for s in HELIOS_SEGMENTS}
+    bukrs_to_seg = {s["company_code"]: s["code"] for s in SEGMENTS}
 
     next_po_header_id = (fy * 100_000_000) + (fq * 10_000_000)
     next_po_line_id   = next_po_header_id
@@ -343,7 +343,7 @@ def generate_quarter_fusion(fy: int, fq: int):
             "approved_date": po_approved,
             "po_status": "OPEN",
             "source_requisition_number_ext": banfn,
-            "_helios_segment_code": seg,
+            "_segment_code": seg,
         })
 
         # PO lines mirror PR lines (qty + unit_price stay; some price variation simulating negotiation)
@@ -480,7 +480,7 @@ def generate_quarter_fusion(fy: int, fq: int):
             "payment_status_flag": status,
             "po_matched_flag": "Y",
             "source_po_header_id": po["po_header_id"],
-            "_segment_code": po["_helios_segment_code"],
+            "_segment_code": po["_segment_code"],
         })
 
     # ---- 5. Add non-PO direct vouchers (~10% of invoices) ------------------
@@ -625,7 +625,7 @@ def generate_quarter_fusion(fy: int, fq: int):
             "posted_flag": "Y",
             "posted_date": inv["invoice_date"],
             "currency_code": inv["invoice_currency"],
-            "_helios_segment_code": seg,
+            "_segment_code": seg,
         })
         # Rounded debits — last one absorbs drift so JE balances to the cent
         debit_amts = [round(float(l["amount"]), 2) for l in inv_lines]
@@ -668,7 +668,7 @@ def generate_quarter_fusion(fy: int, fq: int):
                 "posted_flag": "Y",
                 "posted_date": inv["payment_date"],
                 "currency_code": inv["invoice_currency"],
-                "_helios_segment_code": seg,
+                "_segment_code": seg,
             })
             cash_ccid = pick_ccid(rng, seg, "BS")
             je_lines_rows.append({
@@ -718,7 +718,7 @@ def generate_quarter_fusion(fy: int, fq: int):
                     "invoice_currency_code": rng.choice(["USD", "EUR", "GBP", "JPY"], p=[0.72, 0.16, 0.07, 0.05]),
                     "total_amount": amt,
                     "status": rng.choice(["PAID", "OPEN", "PARTIAL"], p=[0.72, 0.22, 0.06]),
-                    "_helios_segment_code": seg,
+                    "_segment_code": seg,
                 })
 
                 # AR JE: DR AR / CR Revenue
@@ -733,7 +733,7 @@ def generate_quarter_fusion(fy: int, fq: int):
                     "posted_flag": "Y",
                     "posted_date": inv_date,
                     "currency_code": ar_inv_rows[-1]["invoice_currency_code"],
-                    "_helios_segment_code": seg,
+                    "_segment_code": seg,
                 })
                 ar_ccid = pick_ccid(rng, seg, "BS")
                 rev_ccid = pick_ccid(rng, seg, "REVENUE")
@@ -754,7 +754,7 @@ def generate_quarter_fusion(fy: int, fq: int):
 
     # ---- 9. Write files ---------------------------------------------------
     write_csv(
-        pl.DataFrame(po_headers_rows).drop("_helios_segment_code"),
+        pl.DataFrame(po_headers_rows).drop("_segment_code"),
         f"{OUT}/po_headers_all_{quarter_label}.csv",
     )
     # Keep _segment_code (used by silver/gold for segment-level rollups) and the
@@ -817,10 +817,10 @@ def generate_quarter_fusion(fy: int, fq: int):
         f"{OUT}/ap_invoice_lines_all_{quarter_label}.parquet",
     )
 
-    write_csv(pl.DataFrame(ar_inv_rows).drop("_helios_segment_code"),
+    write_csv(pl.DataFrame(ar_inv_rows).drop("_segment_code"),
               f"{OUT}/ar_invoices_all_{quarter_label}.csv")
 
-    write_csv(pl.DataFrame(je_headers_rows).drop("_helios_segment_code"),
+    write_csv(pl.DataFrame(je_headers_rows).drop("_segment_code"),
               f"{OUT}/gl_je_headers_{quarter_label}.csv")
     write_parquet(pl.DataFrame(je_lines_rows), f"{OUT}/gl_je_lines_{quarter_label}.parquet")
 

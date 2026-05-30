@@ -1,6 +1,6 @@
 # 2026-05-28 — App review, TODO restructure, metric layer (spend + parties)
 
-## App review (apps/helios-sourcing-portal)
+## App review (apps/spend-analytics)
 Reviewed the returned app. Strong work; the 2026-05-27 defensibility pass already fixed the worst metric bugs. Key remaining finding: **metrics aren't standardized** — hand-written SQL in router strings, same concept redefined with drift (two `pct_consumed` definitions; chatbot "total spend" diverges from Home because Genie writes its own SQL with no PAID/T12M filter; Home fires 3 full-scan T12M queries; `measured_maverick_pct` duplicated). Minor non-breaking cleanups logged in [phase3_apps.md](../todo/phase3_apps.md) (local HTTPException imports, histogram float labels, GROUP BY COALESCE, DDL-on-first-request comment).
 
 ## TODO restructure

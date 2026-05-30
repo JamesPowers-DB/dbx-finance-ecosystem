@@ -1,7 +1,7 @@
 # Open questions (carried)
 
 - [ ] **UNSPSC taxonomy** — real UNSPSC 25.0 or synthetic 30-category mapping? (Locks how the ML model's predictions encode `unspsc_family_code`.)
-- [x] **Lakebase app placement** — standalone project (`projects/helios-sourcing`), not embedded. OBO per-request; no shared pool.
+- [x] **Lakebase app placement** — standalone project (`projects/spend-analytics`), not embedded. OBO per-request; no shared pool.
 - [ ] **"Databricks on Databricks" angle** — retain from old script or drop.
 - [ ] **ML SME** — design doc named TBD. Without one, Phase 2 ML is "best effort" rather than headline.
 - [ ] **FEIP timing** — Sprint 0 or Sprint 1.

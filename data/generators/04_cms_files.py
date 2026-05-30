@@ -7,7 +7,7 @@
 # MAGIC
 # MAGIC **One file each (full mode only):**
 # MAGIC - `contract.jsonl` — outbound commercial contracts (~5,000)
-# MAGIC - `contract_party.jsonl` — customer + Helios entity per contract
+# MAGIC - `contract_party.jsonl` — customer + entity per contract
 # MAGIC - `contract_line_item.jsonl` — revenue-bearing lines
 # MAGIC - `contract_amendment.jsonl` — version history
 # MAGIC - `performance_obligation.jsonl` — ASC 606-style obligations
@@ -59,7 +59,7 @@ if target is None or not os.path.exists(CUSTOMER_POOL_FILE):
     g = mimesis_for("cms:customers")
     names = pool_names(g, 800)
 
-    seg_weights = np.array([s["mix"] for s in HELIOS_SEGMENTS])
+    seg_weights = np.array([s["mix"] for s in SEGMENTS])
     seg_weights /= seg_weights.sum()
     customers = []
     for i in range(N_CUSTOMERS):
@@ -106,10 +106,10 @@ if target is None or not os.path.exists(CONTRACT_FILE):
     obligations: List[Dict] = []
 
     SKU_BY_SEG = {
-        "HAD": [(f"SKU-AERO-{i:04d}", f"Aerospace product line {i}") for i in range(120)],
-        "HPA": [(f"SKU-HPA-{i:04d}", f"Process automation product {i}") for i in range(100)],
-        "HSB": [(f"SKU-HSB-{i:04d}", f"Smart building solution {i}") for i in range(80)],
-        "HET": [(f"SKU-HET-{i:04d}", f"Energy transition product {i}") for i in range(90)],
+        "AD": [(f"SKU-AERO-{i:04d}", f"Aerospace product line {i}") for i in range(120)],
+        "PA": [(f"SKU-PA-{i:04d}", f"Process automation product {i}") for i in range(100)],
+        "SB": [(f"SKU-SB-{i:04d}", f"Smart building solution {i}") for i in range(80)],
+        "ET": [(f"SKU-ET-{i:04d}", f"Energy transition product {i}") for i in range(90)],
     }
 
     for ci in range(N_CONTRACTS):
@@ -138,7 +138,7 @@ if target is None or not os.path.exists(CONTRACT_FILE):
             "contract_id": contract_id,
             "contract_number": f"CON-{signed_date.year}-{ci % 100_000:05d}",
             "customer_id": cust_id,
-            "helios_entity_segment": seg,
+            "entity_segment": seg,
             "signed_date": signed_date.isoformat(),
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
@@ -150,10 +150,10 @@ if target is None or not os.path.exists(CONTRACT_FILE):
                                             p=[0.60, 0.20, 0.15, 0.05])),
         })
 
-        # Parties — Helios entity + customer
+        # Parties — entity + customer
         parties.append({"contract_id": contract_id, "party_role": "Provider",
-                        "party_id": HELIOS_CORP_COMPANY_CODE,
-                        "party_name": f"Helios — {seg}",
+                        "party_id": CORP_COMPANY_CODE,
+                        "party_name": f"Internal — {seg}",
                         "segment_code": seg})
         parties.append({"contract_id": contract_id, "party_role": "Customer",
                         "party_id": cust_id,

@@ -15,8 +15,8 @@ SELECT
   CAST(l.BNFPO AS INT)                                              AS pr_line_num,
   h.BUKRS                                                           AS company_code,
   CASE h.BUKRS
-    WHEN '1100' THEN 'HAD' WHEN '1200' THEN 'HPA'
-    WHEN '1300' THEN 'HSB' WHEN '1400' THEN 'HET'
+    WHEN '1100' THEN 'AD' WHEN '1200' THEN 'PA'
+    WHEN '1300' THEN 'SB' WHEN '1400' THEN 'ET'
     WHEN '1900' THEN 'CORP' ELSE 'OTHER'
   END                                                               AS segment_code,
   h.AFNAM                                                           AS requester_id,

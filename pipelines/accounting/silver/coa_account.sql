@@ -19,9 +19,9 @@ SELECT
   segment7_future2,
   natural_account_description,
   natural_account_type,
-  CASE _helios_segment_code
-    WHEN 'HAD' THEN 'HAD' WHEN 'HPA' THEN 'HPA'
-    WHEN 'HSB' THEN 'HSB' WHEN 'HET' THEN 'HET'
+  CASE _segment_code
+    WHEN 'AD' THEN 'AD' WHEN 'PA' THEN 'PA'
+    WHEN 'SB' THEN 'SB' WHEN 'ET' THEN 'ET'
     WHEN 'CORP' THEN 'CORP' ELSE 'OTHER'
   END                                   AS segment_code,
   enabled_flag

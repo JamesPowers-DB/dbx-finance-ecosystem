@@ -1,6 +1,6 @@
-# `data/generators/` — Helios synthetic data generators
+# `data/generators/` — synthetic data generators
 
-Anchor-driven data generators that synthesize raw source-system files for the Helios Industrial Group demo. Numbers are anchored to hand-curated rows in `_meta.dim_period_anchors` (1/10-scaled from a reference public industrial conglomerate's filings — see `_demo/00_design_context.md`).
+Anchor-driven data generators that synthesize raw source-system files for the Strategic Spend Analytics demo. Numbers are anchored to hand-curated rows in `_meta.dim_period_anchors` (1/10-scaled from a reference public industrial conglomerate's filings — see `_demo/00_design_context.md`).
 
 ## Notebook map
 

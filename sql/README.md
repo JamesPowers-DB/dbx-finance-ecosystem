@@ -41,7 +41,7 @@ Change this line to point at whichever catalog the bundle deployed to (e.g. `hor
 | `pipeline_exploration/parties_overview.sql` | Supplier counts by region × category, **maverick-propensity distribution** (the slice the ML model is evaluated against), top suppliers / customers, Ariba scorecards. |
 | `pipeline_exploration/fpa_overview.sql` | Side-by-side actual vs budget vs forecast for the latest quarter, YoY revenue growth, operating-margin trend per segment. |
 | `pipeline_exploration/hr_overview.sql` | Quarterly headcount cost by segment, QoQ change. (Cost is derived from anchor headcount × loaded-cost assumption — real HR feed is later.) |
-| `pipeline_exploration/reference_data_overview.sql` | Calendar dim sanity, the four Helios segments, the macroeconomic arc (GDP / inflation / demand / supply stress) used to shape within-quarter transaction distributions. |
+| `pipeline_exploration/reference_data_overview.sql` | Calendar dim sanity, the four business segments, the macroeconomic arc (GDP / inflation / demand / supply stress) used to shape within-quarter transaction distributions. |
 
 ## Conventions
 

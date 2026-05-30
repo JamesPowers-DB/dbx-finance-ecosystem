@@ -8,7 +8,7 @@ Two independent bugs:
 2. **"SQL · 0 rows" was a lie** — backend computed `row_count` from the message attachment, but Genie's attachment carries only the SQL definition; rows live behind a separate `/query-result` endpoint. Added a second Genie API call in `run_genie_query` after status COMPLETED; probes `manifest.total_row_count` and `result.data_array`; falls back to `null` (renders "rows pending") instead of `0`.
 
 ## Issue 7 — No "thinking" indicator + slow to respond
-- **Indicator gap** — the prior `"Running…"` indicator had a `toolCards.length > 0` guard that hid it during the 5–15s window between Send and the first `tool_start`. Replaced with an always-on "Helios is thinking…" bubble (3-dot pulse via existing `home-pulse` keyframes); renames to "ran 1 tool…" once a tool fires. New `ThinkingDots` component.
+- **Indicator gap** — the prior `"Running…"` indicator had a `toolCards.length > 0` guard that hid it during the 5–15s window between Send and the first `tool_start`. Replaced with an always-on "is thinking…" bubble (3-dot pulse via existing `home-pulse` keyframes); renames to "ran 1 tool…" once a tool fires. New `ThinkingDots` component.
 - **Genie polling overhead** — flat 2s sleep per status check replaced with backoff `[0.5,0.5,0.5,0.5,1.0,1.0,1.0,1.0,2.0]` (last repeats), max 60 attempts (~90s budget preserved). Saves 1–3s on typical queries.
 
 ## Deferred (lower ROI than effort)

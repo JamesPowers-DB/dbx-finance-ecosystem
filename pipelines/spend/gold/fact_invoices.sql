@@ -23,7 +23,7 @@
 --        (LEFT JOIN to silver.invoice_classification, NULL until inference runs)
 --
 -- IMPORTANT (demo vs. reality): true_category_* would NOT exist on real
--- Helios AP data. They're here so the demo can train a supervised classifier
+-- AP data. They're here so the demo can train a supervised classifier
 -- against a deterministic label set. In a production engagement the customer
 -- would supply a partial manually-curated training set instead.
 -- ============================================================================

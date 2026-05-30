@@ -228,8 +228,8 @@ def parse_args() -> argparse.Namespace:
         default="What is our total spend by category this year?",
         help="Validation question for Genie.",
     )
-    parser.add_argument("--dev-app", default="helios-sourcing-portal-dev", help="Dev app name.")
-    parser.add_argument("--prod-app", default="helios-sourcing-portal-prod", help="Prod app name.")
+    parser.add_argument("--dev-app", default="spend-analytics-dev", help="Dev app name.")
+    parser.add_argument("--prod-app", default="spend-analytics-prod", help="Prod app name.")
     parser.add_argument("--dev-catalog", default="horizontal_finance_dev", help="Dev catalog.")
     parser.add_argument("--prod-catalog", default="horizontal_finance", help="Prod catalog.")
     return parser.parse_args()

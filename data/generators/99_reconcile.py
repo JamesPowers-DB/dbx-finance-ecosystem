@@ -134,7 +134,7 @@ for (fy, fq) in periods:
 
 # COMMAND ----------
 print("=== PR → PO → Invoice volumes (loose ±15%) ===")
-bukrs_to_seg = {s["company_code"]: s["code"] for s in HELIOS_SEGMENTS}
+bukrs_to_seg = {s["company_code"]: s["code"] for s in SEGMENTS}
 
 for (fy, fq) in periods:
     label = f"{fy}Q{fq}"

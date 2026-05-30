@@ -26,7 +26,7 @@ WITH from_fusion AS (
 contract_segments AS (
   SELECT
     p.party_id                                     AS customer_id,
-    FIRST(c.helios_entity_segment)                 AS primary_segment_code
+    FIRST(c.entity_segment)                 AS primary_segment_code
   FROM ${schema_bronze_cms}.contract_party p
   JOIN ${schema_bronze_cms}.contract c
     ON p.contract_id = c.contract_id
