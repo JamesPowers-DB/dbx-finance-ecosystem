@@ -2,13 +2,6 @@
   "version": 1,
   "resources": [
     {
-      "type": "genie_space",
-      "name": "Strategic Spend Analytics",
-      "id": "01f154f176351736be32d20533d9f257",
-      "created_at": "2026-05-29T05:17:35.946704+00:00",
-      "updated_at": "2026-05-29T05:17:35.946704+00:00"
-    },
-    {
       "type": "dashboard",
       "name": "Strategic Spend Analytics \u2014 Spend Visibility",
       "id": "01f15b839e58197081e11b299cdaba4a",

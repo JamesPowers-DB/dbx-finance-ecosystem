@@ -428,6 +428,17 @@ measures:
         places: 0
     synonyms:
       - active suppliers
+  - name: active_periods
+    expr: COUNT(DISTINCT fiscal_year * 10 + fiscal_quarter)
+    comment: "Distinct fiscal quarters with activity — consistency signal feeding the supplier reliability score."
+    display_name: Active Periods
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+    synonyms:
+      - active quarters
 $$
 """
 
@@ -546,14 +557,351 @@ measures:
       decimal_places:
         type: max
         places: 1
+  - name: governed_spend_pct
+    display_name: "Governed Spend Pct"
+    expr: 1 - MEASURE(measured_maverick_pct)
+    comment: "Share of this supplier's paid spend that IS under management (the complement of maverick) — always has a denominator, including regulated suppliers."
+    synonyms: ['managed share', 'under-management share']
+    format:
+      type: percentage
+      decimal_places:
+        type: max
+        places: 1
+  - name: active_periods
+    display_name: "Active Periods"
+    expr: MEASURE(active_periods)
+    comment: "Distinct fiscal quarters this supplier was active — relationship consistency."
+    synonyms: ['active quarters', 'tenure']
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+  - name: reliability_score
+    display_name: "Reliability Score"
+    expr: "0.5 * (1 - MEASURE(measured_maverick_pct)) + 0.3 * COALESCE(MEASURE(managed_spend_pct), 0) + 0.2 * LEAST(MEASURE(active_periods) / 8.0, 1)"
+    comment: "Governance-based supplier reliability index (0-1). NO delivery/quality ground truth exists in the data, so 'reliability' is defined as how controlled and consistent the relationship is: 0.5 x governed share (1 - maverick) + 0.3 x managed coverage of addressable spend + 0.2 x consistency (active quarters / 8, capped). Rank suppliers by this for 'most reliable suppliers'. Filter to a minimum trailing spend to ignore one-off vendors."
+    synonyms: ['reliability', 'most reliable', 'supplier reliability', 'reliability index']
+    format:
+      type: number
+      decimal_places:
+        type: max
+        places: 3
 $$
 """
+
+# ── Subject view: gold.mv_contracts (buy-side contract portfolio) ─────────────
+# Source = silver.contract_inbound (Ariba contract workspaces). contract_workspace_id
+# is the contract_id stamped on PR/PO/invoice lines, so this ties to mv_spend /
+# mv_purchase_orders. Utilization is dollar-weighted (actual / committed) — a
+# count-based "% utilized" is ~100% because every contract carries some spend.
+# Token-replaced (not f-string) so the inline-brace YAML flow-mappings survive.
+_MV_CONTRACTS_SQL = '''CREATE OR REPLACE VIEW __CAT__.__GOLD__.mv_contracts
+WITH METRICS
+LANGUAGE YAML
+AS $$
+version: 1.1
+source: __CAT__.__SILVER__.contract_inbound
+comment: "Buy-side (procurement) contract portfolio from Ariba contract workspaces. One row per inbound contract. Utilization = actual_spend_to_date / total_committed_spend (dollar-weighted). contract_workspace_id is the contract_id stamped on PR/PO/invoice lines (links to mv_spend / mv_purchase_orders). Sell-side customer contracts are NOT here (revenue subject)."
+joins:
+  - name: supplier
+    source: __CAT__.__GOLD__.dim_supplier
+    on: source.supplier_id = supplier.supplier_id
+dimensions:
+  - name: contract_workspace_id
+    expr: contract_workspace_id
+    display_name: Contract ID
+    synonyms: ['contract id', 'contract', 'workspace id']
+  - name: contract_type
+    expr: contract_type
+    display_name: Contract Type
+  - name: status
+    expr: status
+    display_name: Status
+    synonyms: ['contract status']
+  - name: region
+    expr: region
+    display_name: Region
+    synonyms: ['owning region']
+  - name: supplier_id
+    expr: supplier_id
+    display_name: Supplier Id
+  - name: supplier_name
+    expr: supplier.supplier_name
+    display_name: Supplier Name
+    synonyms: ['supplier', 'vendor', 'counterparty']
+  - name: effective_date
+    expr: effective_date
+    display_name: Effective Date
+  - name: expiration_date
+    expr: expiration_date
+    display_name: Expiration Date
+  - name: is_active
+    expr: (status = 'Active' AND current_date() BETWEEN effective_date AND expiration_date)
+    display_name: Is Active
+  - name: is_expiring_90d
+    expr: (expiration_date BETWEEN current_date() AND date_add(current_date(), 90))
+    display_name: Expiring In 90 Days
+measures:
+  - name: contract_count
+    expr: COUNT(DISTINCT contract_workspace_id)
+    display_name: Contract Count
+    synonyms: ['contracts', 'number of contracts']
+    format:
+      type: number
+      decimal_places: {type: exact, places: 0}
+  - name: total_committed
+    expr: SUM(total_committed_spend)
+    display_name: Total Committed
+    synonyms: ['committed spend', 'contract value', 'ceiling']
+    format: {type: currency, currency_code: USD, decimal_places: {type: exact, places: 0}, abbreviation: compact}
+  - name: total_actual
+    expr: SUM(actual_spend_to_date)
+    display_name: Total Actual Spend
+    synonyms: ['actual spend', 'spend to date']
+    format: {type: currency, currency_code: USD, decimal_places: {type: exact, places: 0}, abbreviation: compact}
+  - name: utilization_rate
+    expr: SUM(actual_spend_to_date) / NULLIF(SUM(total_committed_spend), 0)
+    comment: "Dollar-weighted contract utilization: actual spend to date / total committed. This is the answer to 'what percent of contracts have been utilized'."
+    display_name: Utilization Rate
+    synonyms: ['contract utilization', 'percent utilized', 'contracts utilized', 'usage rate']
+    format: {type: percentage, decimal_places: {type: max, places: 1}}
+  - name: remaining_commitment
+    expr: SUM(total_committed_spend - actual_spend_to_date)
+    display_name: Remaining Commitment
+    synonyms: ['headroom', 'unused commitment']
+    format: {type: currency, currency_code: USD, decimal_places: {type: exact, places: 0}, abbreviation: compact}
+  - name: avg_contract_value
+    expr: AVG(total_committed_spend)
+    display_name: Avg Contract Value
+    format: {type: currency, currency_code: USD, decimal_places: {type: exact, places: 0}, abbreviation: compact}
+  - name: expiring_90d_count
+    expr: SUM(CASE WHEN expiration_date BETWEEN current_date() AND date_add(current_date(), 90) THEN 1 ELSE 0 END)
+    display_name: Expiring In 90 Days
+    synonyms: ['expiring soon', 'renewals due']
+    format: {type: number, decimal_places: {type: exact, places: 0}}
+  - name: over_utilized_count
+    expr: SUM(CASE WHEN actual_spend_to_date > total_committed_spend THEN 1 ELSE 0 END)
+    comment: "Contracts spent past their committed ceiling — overspend / off-ceiling leakage risk."
+    display_name: Over-Utilized Count
+    format: {type: number, decimal_places: {type: exact, places: 0}}
+$$'''
+mv_contracts = (_MV_CONTRACTS_SQL.replace("__CAT__", catalog)
+                .replace("__GOLD__", gold).replace("__SILVER__", silver))
+
+# ── Subject view: gold.mv_purchase_orders (request -> order step) ──────────────
+# PO line grain LEFT JOINed to the originating PR (fact_purchase_requests) so
+# requisition context rides on every PO line. PR->PO cycle time is omitted (PR and
+# PO are stamped same-day in the source). Headline story is off-contract PO leakage
+# by requisition source channel.
+_MV_PURCHASE_ORDERS_SQL = '''CREATE OR REPLACE VIEW __CAT__.__GOLD__.mv_purchase_orders
+WITH METRICS
+LANGUAGE YAML
+AS $$
+version: 1.1
+source: __CAT__.__GOLD__.fact_purchase_orders
+comment: "Purchase-order commitment fact (PO line grain) LEFT JOINed to the originating purchase request (fact_purchase_requests on source_pr_number + source_pr_line_num) so requisition context rides on every PO line. Covers the request-to-order step of the spend lifecycle: PO commitment dollars, PR->PO conversion, source-channel mix, and off-contract PO leakage. Managed = PO line carries a contract_id or sourcing_event_id."
+joins:
+  - name: pr
+    source: __CAT__.__GOLD__.fact_purchase_requests
+    on: source.source_pr_number = pr.pr_number AND source.source_pr_line_num = pr.pr_line_num
+dimensions:
+  - name: po_status
+    expr: po_status
+    display_name: PO Status
+  - name: po_doc_type
+    expr: po_doc_type
+    display_name: PO Doc Type
+  - name: segment
+    expr: segment_code
+    display_name: Segment
+    synonyms: ['business segment', 'division']
+  - name: supplier_id
+    expr: supplier_id
+    display_name: Supplier Id
+  - name: supplier_name
+    expr: supplier_name
+    display_name: Supplier Name
+    synonyms: ['supplier', 'vendor']
+  - name: supplier_region
+    expr: supplier_region
+    display_name: Supplier Region
+    synonyms: ['region']
+  - name: pr_source
+    expr: pr_source
+    comment: "Origination channel of the requisition (Catalog / AribaPortal / ManualSubmission / ProcurementAgent)."
+    display_name: PR Source
+    synonyms: ['origination channel', 'requisition source', 'purchase channel']
+  - name: category_primary
+    expr: true_category_primary
+    display_name: Category Primary
+    synonyms: ['spend category', 'category']
+  - name: category_secondary
+    expr: true_category_secondary
+    display_name: Category Secondary
+  - name: fiscal_year
+    expr: fiscal_year
+    display_name: Fiscal Year
+    synonyms: ['fy', 'year']
+  - name: fiscal_quarter
+    expr: fiscal_quarter
+    display_name: Fiscal Quarter
+    synonyms: ['fq', 'quarter']
+  - name: po_created_date
+    expr: po_created_date
+    display_name: PO Created Date
+  - name: managed_status
+    expr: |-
+      CASE WHEN contract_id IS NOT NULL AND sourcing_event_id IS NOT NULL THEN 'Contracted & Sourced'
+           WHEN contract_id IS NOT NULL THEN 'Contracted only'
+           WHEN sourcing_event_id IS NOT NULL THEN 'Sourced only'
+           ELSE 'Off-contract' END
+    display_name: Managed Status
+  - name: pr_status
+    expr: pr.pr_status
+    display_name: PR Status
+  - name: requester_id
+    expr: pr.requester_id
+    display_name: Requester Id
+  - name: pr_doc_type
+    expr: pr.pr_doc_type
+    display_name: PR Doc Type
+measures:
+  - name: po_line_count
+    expr: COUNT(*)
+    display_name: PO Line Count
+    format: {type: number, decimal_places: {type: exact, places: 0}}
+  - name: po_count
+    expr: COUNT(DISTINCT po_number)
+    display_name: PO Count
+    synonyms: ['purchase orders', 'number of pos']
+    format: {type: number, decimal_places: {type: exact, places: 0}}
+  - name: total_po_amount
+    expr: SUM(extended_amount)
+    display_name: Total PO Amount
+    synonyms: ['po spend', 'committed po value', 'order value']
+    format: {type: currency, currency_code: USD, decimal_places: {type: exact, places: 0}, abbreviation: compact}
+  - name: off_contract_po_amount
+    expr: SUM(CASE WHEN contract_id IS NULL AND sourcing_event_id IS NULL THEN extended_amount ELSE 0 END)
+    comment: "PO dollars with no contract and no sourcing event — request-to-order leakage."
+    display_name: Off-Contract PO Amount
+    synonyms: ['off contract po spend', 'po leakage']
+    format: {type: currency, currency_code: USD, decimal_places: {type: exact, places: 0}, abbreviation: compact}
+  - name: off_contract_po_pct
+    expr: SUM(CASE WHEN contract_id IS NULL AND sourcing_event_id IS NULL THEN extended_amount ELSE 0 END) / NULLIF(SUM(extended_amount), 0)
+    display_name: Off-Contract PO Pct
+    synonyms: ['po leakage rate', 'off contract share']
+    format: {type: percentage, decimal_places: {type: max, places: 1}}
+  - name: managed_po_pct
+    expr: SUM(CASE WHEN contract_id IS NOT NULL OR sourcing_event_id IS NOT NULL THEN extended_amount ELSE 0 END) / NULLIF(SUM(extended_amount), 0)
+    comment: "Share of PO dollars on a contract or sourcing event."
+    display_name: Managed PO Pct
+    format: {type: percentage, decimal_places: {type: max, places: 1}}
+  - name: prs_converted
+    expr: COUNT(DISTINCT source_pr_number)
+    comment: "Distinct purchase requests that resulted in a PO."
+    display_name: PRs Converted
+    synonyms: ['requisitions converted', 'prs ordered']
+    format: {type: number, decimal_places: {type: exact, places: 0}}
+  - name: total_pr_estimate
+    expr: SUM(pr.estimated_extended_amount)
+    comment: "Summed requisition estimate for the joined PR lines (compare to total_po_amount for estimate accuracy)."
+    display_name: Total PR Estimate
+    format: {type: currency, currency_code: USD, decimal_places: {type: exact, places: 0}, abbreviation: compact}
+  - name: avg_po_line_value
+    expr: AVG(extended_amount)
+    display_name: Avg PO Line Value
+    format: {type: currency, currency_code: USD, decimal_places: {type: exact, places: 0}, abbreviation: compact}
+$$'''
+mv_purchase_orders = (_MV_PURCHASE_ORDERS_SQL.replace("__CAT__", catalog)
+                      .replace("__GOLD__", gold))
+
+# ── Subject view: gold.mv_cost_savings (low priority) ─────────────────────────
+# Auto-detected sourcing savings (baseline back-calculated from event type).
+_MV_COST_SAVINGS_SQL = '''CREATE OR REPLACE VIEW __CAT__.__GOLD__.mv_cost_savings
+WITH METRICS
+LANGUAGE YAML
+AS $$
+version: 1.1
+source: __CAT__.__GOLD__.fact_cost_savings
+comment: "Auto-detected procurement cost reductions from closed/awarded sourcing events. Savings = baseline_amount - awarded_amount, where the pre-negotiation baseline is back-calculated from the event type (Auction ~25%, RFP ~18%, RFQ ~12%). Manual cost-avoidance entries live in Lakebase and are NOT in this view. Low-priority subject."
+dimensions:
+  - name: event_type
+    expr: event_type
+    display_name: Event Type
+    synonyms: ['sourcing event type', 'rfx type']
+  - name: segment
+    expr: segment_code
+    display_name: Segment
+    synonyms: ['business segment', 'division']
+  - name: category_primary
+    expr: category_primary
+    display_name: Category Primary
+    synonyms: ['spend category', 'category']
+  - name: supplier_id
+    expr: supplier_id
+    display_name: Supplier Id
+  - name: supplier_name
+    expr: supplier_name
+    display_name: Supplier Name
+    synonyms: ['supplier', 'vendor']
+  - name: owner_org_unit
+    expr: owner_org_unit
+    display_name: Owner Org Unit
+    synonyms: ['sourcing team', 'org unit']
+  - name: savings_type
+    expr: savings_type
+    display_name: Savings Type
+  - name: fiscal_year
+    expr: fiscal_year
+    display_name: Fiscal Year
+    synonyms: ['fy', 'year']
+  - name: fiscal_quarter
+    expr: fiscal_quarter
+    display_name: Fiscal Quarter
+    synonyms: ['fq', 'quarter']
+measures:
+  - name: total_savings
+    expr: SUM(savings_amount_usd)
+    display_name: Total Savings
+    synonyms: ['savings', 'cost savings', 'cost reduction', 'realized savings']
+    format: {type: currency, currency_code: USD, decimal_places: {type: exact, places: 0}, abbreviation: compact}
+  - name: total_awarded
+    expr: SUM(awarded_amount)
+    display_name: Total Awarded
+    synonyms: ['awarded spend', 'awarded amount']
+    format: {type: currency, currency_code: USD, decimal_places: {type: exact, places: 0}, abbreviation: compact}
+  - name: total_baseline
+    expr: SUM(baseline_amount)
+    display_name: Total Baseline
+    synonyms: ['baseline spend', 'pre-negotiation']
+    format: {type: currency, currency_code: USD, decimal_places: {type: exact, places: 0}, abbreviation: compact}
+  - name: effective_savings_rate
+    expr: SUM(savings_amount_usd) / NULLIF(SUM(baseline_amount), 0)
+    comment: "Dollar-weighted savings rate = savings / baseline."
+    display_name: Effective Savings Rate
+    synonyms: ['savings rate', 'savings percent']
+    format: {type: percentage, decimal_places: {type: max, places: 1}}
+  - name: event_count
+    expr: COUNT(DISTINCT savings_event_id)
+    display_name: Event Count
+    synonyms: ['sourcing events', 'number of events']
+    format: {type: number, decimal_places: {type: exact, places: 0}}
+$$'''
+mv_cost_savings = (_MV_COST_SAVINGS_SQL.replace("__CAT__", catalog)
+                   .replace("__GOLD__", gold))
 
 print(f"Applying metric views to {catalog}.{gold} ...")
 spark.sql(mv_spend)
 print(f"  ✓ {catalog}.{gold}.mv_spend")
 spark.sql(mv_supplier_performance)
 print(f"  ✓ {catalog}.{gold}.mv_supplier_performance (nested on mv_spend)")
+spark.sql(mv_contracts)
+print(f"  ✓ {catalog}.{gold}.mv_contracts")
+spark.sql(mv_purchase_orders)
+print(f"  ✓ {catalog}.{gold}.mv_purchase_orders (PO line grain + PR join)")
+spark.sql(mv_cost_savings)
+print(f"  ✓ {catalog}.{gold}.mv_cost_savings")
 
 # ── Validation — fail the task if the headline KPIs don't compute ────────────
 # Ratio measures are stored as fractions; multiply by 100 here purely for a

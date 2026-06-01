@@ -28,8 +28,9 @@ env:
     value: "projects/spend-analytics/branches/production/endpoints/primary"
 
   # Strategic Spend Analytics Genie Space — used by the ask_genie chatbot tool.
+  # Metric-view-only space (re)provisioned by genie/provision_genie_space.py.
   - name: GENIE_SPACE_ID
-    value: "01f154f176351736be32d20533d9f257"
+    value: "01f15c3823f2163a9560dadb4357bb31"
 
   # FMAPI serving endpoint for the procurement chatbot.
   # Use a Llama 3.3 70B or Claude endpoint registered in Model Serving.

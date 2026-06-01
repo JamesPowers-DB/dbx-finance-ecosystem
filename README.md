@@ -50,12 +50,23 @@ dbx-finance-ecosystem/
 
 ```bash
 databricks bundle validate -t dev
-databricks bundle deploy -t dev
+databricks bundle deploy -t dev --var warehouse_id=e9b34f7a2e4b0561
 
-# First-time setup: synthesize raw files + build the lakehouse
+# First-time setup: synthesize raw files + build the lakehouse + metric views
 databricks bundle run generate_data -t dev
 databricks bundle run build_lakehouse -t dev
+
+# Consumption layer (idempotent; re-run after schema/metric-view changes)
+databricks bundle run apply_metric_views -t dev
+python genie/provision_genie_space.py --target dev          # (re)create the Genie space
+python scripts/grant_app_sp_access.py --target dev          # grant the app's auto-created SP
 ```
+
+The app's service principal is created automatically by the Apps platform on
+`bundle deploy` — it is **not** in the repo. `scripts/grant_app_sp_access.py`
+resolves it (via `databricks apps get`) and applies the UC schema grants + Genie
+`CAN_RUN`, so there's no `<APP_SP_PRINCIPAL>` placeholder to hand-edit. (The
+`sql/security/grant_app_sp_genie_access_*.sql` files are the manual equivalent.)
 
 ### When a new reference 10-Q drops
 

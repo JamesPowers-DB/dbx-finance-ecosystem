@@ -27,15 +27,14 @@ REQUIRED_SCOPES = {
     "dashboards.genie",
 }
 
+# The Genie space is metric-view-only, so the SP must be able to SELECT the
+# metric views (which transitively read the underlying gold/silver objects).
 PROBE_OBJECTS = (
-    "gold.fact_invoices",
-    "gold.dim_supplier",
-    "gold.fact_purchase_requests",
-    "gold.fact_purchase_orders",
-    "gold.fact_cost_savings",
-    "gold.dim_spend_category",
-    "silver.contract_inbound",
-    "silver.sourcing_event",
+    "gold.mv_spend",
+    "gold.mv_supplier_performance",
+    "gold.mv_contracts",
+    "gold.mv_purchase_orders",
+    "gold.mv_cost_savings",
 )
 
 

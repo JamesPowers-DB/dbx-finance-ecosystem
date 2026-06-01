@@ -11,6 +11,8 @@
 
 ## Genie Space — provisioned ✅ (2026-05-21)
 
+> ⚠️ **Superseded 2026-05-30** — this space (`01f154f176351736be32d20533d9f257`) was torn down and replaced with a metric-view-only space `01f15c3823f2163a9560dadb4357bb31`, now provisioned reproducibly by `genie/provision_genie_space.py`. See [20260530_genie_metric_view_space.md](20260530_genie_metric_view_space.md). The details below are the original (raw-table) configuration.
+
 - **Space**: `Strategic Spend Analytics` — `01f154f176351736be32d20533d9f257`
 - **Tables**: `gold.fact_invoices`, `gold.dim_supplier`, `gold.fact_purchase_requests`, `gold.fact_purchase_orders`, `gold.fact_cost_savings`, `gold.dim_spend_category`, `silver.contract_inbound`, `silver.sourcing_event` (all in `horizontal_finance_dev`)
 - **Warehouse**: `Serverless Starter Warehouse` (`e9b34f7a2e4b0561`)
