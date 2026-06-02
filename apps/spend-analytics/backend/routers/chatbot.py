@@ -57,6 +57,30 @@ def _genie_poll_interval(attempt: int) -> float:
     """Return the sleep duration (seconds) for the given poll attempt index."""
     return _GENIE_POLL_INTERVALS[min(attempt, len(_GENIE_POLL_INTERVALS) - 1)]
 
+
+# The app resolves its Genie space by TITLE (so a bundle-provisioned space needs
+# no id written back into app.yaml). Cache the resolved id per title for the
+# process lifetime.
+_GENIE_SPACE_ID_CACHE: dict[str, str] = {}
+
+
+def _resolve_genie_space_id(genie_request, token: str, title: str) -> str | None:
+    """Find a Genie space id by exact title via the list API (paginated, cached)."""
+    if title in _GENIE_SPACE_ID_CACHE:
+        return _GENIE_SPACE_ID_CACHE[title]
+    page_token = None
+    for _ in range(20):
+        path = "/api/2.0/genie/spaces?page_size=100" + (f"&page_token={page_token}" if page_token else "")
+        res = genie_request("GET", path, token)
+        for sp in res.get("spaces", []) or []:
+            if sp.get("title") == title and sp.get("space_id"):
+                _GENIE_SPACE_ID_CACHE[title] = sp["space_id"]
+                return sp["space_id"]
+        page_token = res.get("next_page_token")
+        if not page_token:
+            break
+    return None
+
 _SYSTEM_PROMPT = """You are the Spend Analytics Assistant for the Strategic Spend Analytics.
 You help sourcing managers and buyers find the right suppliers, check active contracts,
 understand price history, submit purchase requests, and explore spend analytics.
@@ -407,10 +431,9 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
             import time, urllib.request, urllib.error
             question = args["question"]
             log.info("ask_genie invoked for question: %s", question[:200])
+            # Resolved by title (s.genie_space_title) once a token is available,
+            # below; s.genie_space_id is an optional explicit override.
             space_id = s.genie_space_id
-            if not space_id:
-                log.warning("ask_genie missing GENIE_SPACE_ID")
-                return json.dumps({"error": "GENIE_SPACE_ID not configured in app.yaml."})
             if not s.sp_client_id or not s.sp_client_secret:
                 log.warning("ask_genie missing APP_SP_CLIENT_ID/APP_SP_CLIENT_SECRET")
                 return json.dumps({
@@ -570,6 +593,20 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                 if s.sp_client_id and s.sp_client_secret
                 else None
             )
+
+            # Resolve the space by title (cached) unless explicitly pinned via
+            # GENIE_SPACE_ID. run_genie_query closes over `space_id`, so setting it
+            # here updates every downstream request.
+            if not space_id:
+                resolve_token = sp_token or caller.access_token
+                if resolve_token:
+                    space_id = _resolve_genie_space_id(genie_request, resolve_token, s.genie_space_title)
+                if not space_id:
+                    return json.dumps({
+                        "error": f"No Genie space titled '{s.genie_space_title}' was found.",
+                        "hint": "Provision it with `databricks bundle run setup` (or set GENIE_SPACE_ID).",
+                    })
+
             if sp_token:
                 sp_result = run_genie_query(sp_token, "app_service_principal")
                 if sp_result.get("ok"):

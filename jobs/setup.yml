@@ -1,0 +1,44 @@
+resources:
+  jobs:
+    setup:
+      name: finance-demo-setup-${bundle.target}
+      description: >
+        One-click post-deploy installer. Runs the whole consumption stack in order:
+        generate_data -> build_lakehouse (pipeline) -> apply_metric_views ->
+        provision_genie -> grant_app_sp. After `databricks bundle deploy`, run this
+        once with `databricks bundle run setup -t <target>`. Idempotent; re-run any
+        individual job on its own when iterating. Heavy (full data regen + pipeline)
+        — expect ~15-30 min on first run.
+      max_concurrent_runs: 1
+      email_notifications: {}
+      tasks:
+        - task_key: generate_data
+          run_job_task:
+            job_id: ${resources.jobs.generate_data.id}
+
+        - task_key: build_lakehouse
+          depends_on:
+            - task_key: generate_data
+          run_job_task:
+            job_id: ${resources.jobs.build_lakehouse.id}
+
+        - task_key: apply_metric_views
+          depends_on:
+            - task_key: build_lakehouse
+          run_job_task:
+            job_id: ${resources.jobs.apply_metric_views.id}
+
+        - task_key: provision_genie
+          depends_on:
+            - task_key: apply_metric_views
+          run_job_task:
+            job_id: ${resources.jobs.provision_genie.id}
+
+        - task_key: grant_app_sp
+          depends_on:
+            - task_key: provision_genie
+          run_job_task:
+            job_id: ${resources.jobs.grant_app_sp.id}
+
+      queue:
+        enabled: true

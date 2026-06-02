@@ -22,13 +22,29 @@ sql/
 
 Each `*_overview.sql` is a collection of independent queries separated by section comments. Open in the Databricks SQL editor, scroll to the section you want, and run that block (Cmd+Enter on Mac).
 
-Every file starts with:
+### Parameterization (bundle variables)
+
+Catalog and schema are **Databricks Asset Bundle variables** — the same convention as `sql/security/`. Every file starts with:
 
 ```sql
-USE CATALOG horizontal_finance_dev;
+USE CATALOG ${var.catalog};
 ```
 
-Change this line to point at whichever catalog the bundle deployed to (e.g. `horizontal_finance` for prod).
+and qualifies tables with the schema variables: `${var.schema_gold}`, `${var.schema_silver}`, `${var.schema_meta}`. These resolve to the deployed target's values (dev → catalog `horizontal_finance_dev`, schemas `gold`/`silver`/`_meta`; prod → catalog `horizontal_finance`). Variable definitions and per-target defaults live in `databricks.yml`.
+
+To run a block in the SQL editor, render the tokens first. Easiest:
+
+```bash
+# print a file with the dev target's catalog/schema substituted, ready to paste:
+databricks bundle validate -t dev --var warehouse_id=<id> >/dev/null   # one-time: confirms vars resolve
+sed -e 's/${var.catalog}/horizontal_finance_dev/g' \
+    -e 's/${var.schema_gold}/gold/g' \
+    -e 's/${var.schema_silver}/silver/g' \
+    -e 's/${var.schema_meta}/_meta/g' \
+    sql/pipeline_exploration/spend_overview.sql
+```
+
+For prod, substitute `horizontal_finance` for the catalog (schemas are the same). Comments still reference plain `gold.`/`silver.`/`_meta.` names for readability — only the executable lines are tokenized.
 
 ## What each file covers
 

@@ -1,101 +1,176 @@
-# dbx-finance-ecosystem
+# Strategic Spend Analytics
 
-**Strategic Spend Analytics** — end-to-end **spend visibility** on Databricks. Follow every dollar across the spend lifecycle — *source / contract → request → order → invoice → paid* — and quantify what's under management (contracted or competitively sourced) vs. leaking to the unmanaged tail.
+**End-to-end spend visibility on Databricks.** Follow every dollar across the spend
+lifecycle — *source / contract → request → order → invoice → paid* — and quantify
+what's under management (contracted or competitively sourced) vs. leaking to the
+unmanaged tail.
 
-This is a **Databricks-first** demo: the value is the governed lakehouse, not any single UI. Synthetic source-system data is curated by a **Lakeflow** pipeline (bronze→silver→gold), categorized by an **MLflow** spend classifier, and exposed through governed Unity Catalog **Metric Views** that are the single source of truth for every consumption surface — **AI/BI dashboards**, an **AI/BI Genie** Space ("talk to your spend"), and an auxiliary **Databricks App** (FastAPI + React, OBO) that stores its state in **Lakebase**. Data is fully synthetic, anchored to hand-curated period anchors (1/10-scaled from a reference public industrial conglomerate's filings) — no real entity.
+This is a **Databricks-first** demo: the value is the governed lakehouse, not any
+single UI. Synthetic source-system data is curated by a **Lakeflow** pipeline
+(bronze → silver → gold), categorized by an **MLflow** spend classifier, and exposed
+through governed Unity Catalog **Metric Views** that are the single source of truth
+for every consumption surface — an **AI/BI dashboard**, an **AI/BI Genie** space
+("talk to your spend"), and an auxiliary **Databricks App** (FastAPI + React, OBO)
+that keeps its state in **Lakebase**. All data is fully synthetic — no real entity.
 
-The authoritative design lives in `_demo/00_design_context.md`. Read that first.
+---
 
-## Layout
+## Install — two commands
 
-```
-dbx-finance-ecosystem/
-├── databricks.yml                bundle root + variables + targets (dev, prod)
-├── resources/
-│   ├── catalog.yml               catalog finance_demo + 8 schemas + raw_files volume
-│   └── pipeline.yml              one Lakeflow pipeline: bronze → silver → gold
-├── jobs/
-│   ├── generate_data.yml         synth raw files (Ariba/Fusion/CMS) + reconcile gate
-│   ├── build_lakehouse.yml       run the pipeline + validate gold-vs-anchors
-│   └── ingest_10q.yml            new 10-Q HTML → AI extract → human review → regen quarter
-├── pipelines/
-│   ├── bronze/                   one SQL file per source system (Ariba/Fusion/CMS)
-│   ├── silver/                   one SQL file per canonical conformed entity
-│   └── gold/                     one SQL file per fact / dim
-├── data/generators/              data generator notebooks (referenced by generate_data job)
-├── ml/notebooks/                 anchor extract/review/regen notebooks (referenced by ingest_10q job)
-├── sql/                          metric views, Genie assets (Phase 2)
-├── dashboards/                   Lakeview dashboards (Phase 2)
-├── apps/                         Databricks Apps (Phase 2 — Lakebase Supplier Master)
-├── docs/                         architecture, demo script, glossary
-└── _demo/                        design context (start here)
-```
-
-## Catalog
-
-`finance_demo` (default; override via `--var catalog=...`):
-
-| Schema           | Purpose |
-|------------------|---------|
-| `raw_data`       | Managed volume `files` — landing zone for all source-system files + 10-Q HTML |
-| `bronze_ariba`   | SAP Ariba shape (LFA1_*, EKKO_*, EKPO_*, RBKP_*, ARIBA_*) |
-| `bronze_fusion`  | Oracle Fusion shape (gl_*, ap_*, ar_*, xla_*) |
-| `bronze_cms`     | In-house CMS shape (contract, contract_line_item, ...) |
-| `silver`         | Conformed canonical entities (supplier, customer, invoice, contract, ...) |
-| `gold`           | Facts + dims with Phase 2 hooks reserved |
-| `_meta`          | `dim_period_anchors` and `dim_period_anchors_draft` |
-| `ml`             | Phase 2 ML features and registered models |
-
-## Deploy
+The whole demo installs with a `bundle deploy` plus one orchestrator job. The only
+environment-specific input is a **SQL warehouse id** (used by the app + dashboard);
+everything else is automated.
 
 ```bash
-databricks bundle validate -t dev
-databricks bundle deploy -t dev --var warehouse_id=e9b34f7a2e4b0561
+# 1) Deploy the assets (catalog, schemas, pipeline, jobs, app, dashboard).
+databricks bundle deploy -t dev --var warehouse_id=<your_warehouse_id>
 
-# First-time setup: synthesize raw files + build the lakehouse + metric views
-databricks bundle run generate_data -t dev
-databricks bundle run build_lakehouse -t dev
-
-# Consumption layer (idempotent; re-run after schema/metric-view changes)
-databricks bundle run apply_metric_views -t dev
-python genie/provision_genie_space.py --target dev          # (re)create the Genie space
-python scripts/grant_app_sp_access.py --target dev          # grant the app's auto-created SP
+# 2) Build + wire everything (one job, runs the full chain).
+databricks bundle run setup -t dev
 ```
 
-The app's service principal is created automatically by the Apps platform on
-`bundle deploy` — it is **not** in the repo. `scripts/grant_app_sp_access.py`
-resolves it (via `databricks apps get`) and applies the UC schema grants + Genie
-`CAN_RUN`, so there's no `<APP_SP_PRINCIPAL>` placeholder to hand-edit. (The
-`sql/security/grant_app_sp_genie_access_*.sql` files are the manual equivalent.)
+> Find a warehouse id: `databricks warehouses list -o json | jq -r '.[] | "\(.id)\t\(.name)"'`
+> (any serverless SQL warehouse works).
+
+That's it. `setup` runs this chain (each step is also a standalone job you can re-run):
+
+| Step | Job | What it does |
+|------|-----|--------------|
+| 1 | `generate_data` | Synthesize source-shaped raw files (Ariba/Fusion/CMS/Workday) + reconcile to anchors (±2%) |
+| 2 | `build_lakehouse` | Run the Lakeflow pipeline (bronze → silver → gold) + validate gold vs. anchors |
+| 3 | `apply_metric_views` | Create the 5 governed metric views |
+| 4 | `provision_genie` | Create/refresh the Genie space **idempotently by title** (metric-view-only) |
+| 5 | `grant_app_sp` | Grant the app's service principal UC schema access + Genie `CAN_RUN` |
+
+First run is heavy (full data regen + pipeline) — budget ~15–30 min. Re-running `setup`
+is safe; or run any single job, e.g. `databricks bundle run apply_metric_views -t dev`.
+
+### Why it's this easy (design notes)
+- **No service-principal wiring.** The app's SP is created by the platform at deploy;
+  `grant_app_sp` resolves it automatically (`databricks apps get`) — no `<APP_SP_PRINCIPAL>`
+  to hand-edit.
+- **No Genie id to copy.** `provision_genie` keys the space by **title**; the app resolves
+  the id by that title at runtime (`GENIE_SPACE_TITLE`). Re-running keeps the same space.
+- **No hardcoded catalog.** Catalog/schema are bundle variables, substituted per target.
+
+---
+
+## Prerequisites
+- A Databricks workspace with **serverless** SQL + jobs, and Unity Catalog.
+- **Databricks CLI ≥ 0.281** authenticated (`databricks auth login` / a profile).
+- Permission to create a catalog + schemas (or rights on an existing catalog — override
+  with `--var catalog=<name>`), and to create a Genie space + Databricks App.
+- The bundle's default profile is `DEFAULT`; both `dev` and `prod` targets currently point
+  at `e2-demo-field-eng`, differentiated by catalog (`horizontal_finance_dev` vs `horizontal_finance`).
+
+---
+
+## What gets created
+
+| Resource | Bundle key | Name |
+|----------|-----------|------|
+| Catalog + 8 schemas + raw volume | `catalog.yml` | `${var.catalog}` (`horizontal_finance_dev` in dev) |
+| Lakeflow pipeline | `lakehouse` | `finance-demo-lakehouse-<target>` |
+| Jobs | `generate_data`, `build_lakehouse`, `apply_metric_views`, `train_spend_classifier`, `provision_genie`, `grant_app_sp`, `setup` | `finance-demo-*-<target>` |
+| Metric views | (in `apply_metric_views`) | `gold.mv_spend`, `mv_supplier_performance`, `mv_contracts`, `mv_purchase_orders`, `mv_cost_savings` |
+| Genie space | `provision_genie` | `Strategic Spend Analytics (<target>)` |
+| Databricks App | `spend_analytics` | `spend-analytics-<target>` |
+| AI/BI dashboard | `spend_visibility` | `Strategic Spend Analytics — Spend Visibility (<target>)` |
+
+**Catalog schemas:** `raw_data` (managed volume `files`), `bronze_ariba`, `bronze_fusion`,
+`bronze_cms`, `bronze_workday`, `silver`, `gold`, `_meta` (period anchors), `ml`.
+
+---
+
+## Verify
+```sql
+-- Headline KPIs (trailing 12 months) — should be ~$2.96B total, ~50.6% managed.
+SELECT ROUND(MEASURE(total_spend)/1e9, 2)        AS total_spend_b,
+       ROUND(MEASURE(managed_spend_pct)*100, 1)  AS managed_pct
+FROM   horizontal_finance_dev.gold.mv_spend
+WHERE  invoice_date >= date_sub(current_date(), 365);
+```
+- **App:** `databricks apps get spend-analytics-dev -o json | jq -r .url`
+- **Genie:** open *Strategic Spend Analytics (dev)* and ask *"Who are my top 5 vendors?"*
+- **Dashboard:** open *Strategic Spend Analytics — Spend Visibility* in the workspace.
+
+---
+
+## Configuration
+
+Bundle variables (`databricks.yml`), overridable with `--var name=value`:
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `catalog` | `horizontal_finance` (`_dev` in the dev target) | Unity Catalog for all data |
+| `warehouse_id` | `""` | **Required at deploy** — app + dashboard binding |
+| `schema_gold` / `schema_silver` / `schema_ml` / … | `gold` / `silver` / `ml` / … | Schema names |
+
+App runtime config lives in `apps/spend-analytics/app.yaml`. The Genie space is resolved
+by `GENIE_SPACE_TITLE` (defaults to `Strategic Spend Analytics (dev)`; set to `(prod)` for a
+prod app). Set `GENIE_SPACE_ID` to pin a specific space instead.
+
+> **Lakebase note:** the chatbot's conversation history and the manual savings ledger
+> persist in Lakebase Postgres. That instance is **not** created by this bundle and is
+> currently un-provisioned — those two features are inert until a Lakebase project is
+> (re)provisioned and `LAKEBASE_*` set in `app.yaml`. Everything else (analytics,
+> contracts, suppliers, dashboard, Genie) is UC/warehouse-backed and unaffected.
+
+---
+
+## Advanced / individual commands
+```bash
+# Run a single step instead of the whole setup chain:
+databricks bundle run build_lakehouse   -t dev
+databricks bundle run apply_metric_views -t dev
+databricks bundle run provision_genie    -t dev
+databricks bundle run grant_app_sp       -t dev
+databricks bundle run train_spend_classifier -t dev   # optional ML
+
+# Ad-hoc, outside the bundle (same logic as the jobs):
+python genie/provision_genie_space.py --target dev --warehouse-id <wh>   # local Genie CLI
+python scripts/grant_app_sp_access.py --target dev                       # local grant CLI
+python scripts/validate_genie_sp_access.py --host <host> --genie-space-id <id> ...
+```
 
 ### When a new reference 10-Q drops
-
-The demo is designed to absorb new quarters automatically. Full workflow is documented in [`data/generators/README.md`](data/generators/README.md#future-10-q-ingestion-workflow). Short version:
-
+The demo absorbs new quarters automatically (full workflow in
+[`data/generators/README.md`](data/generators/README.md#future-10-q-ingestion-workflow)):
 ```bash
-# 1) Drop the 10-Q HTML
-#    cp ~/Downloads/reference-10q-2026q1.html  \
-#       /Volumes/finance_demo/raw_data/files/filings/raw/10q_2026q1.html
-
-# 2) Extract → human-review → regenerate that quarter's source files
-databricks bundle run ingest_10q -t dev \
-  --params filing_path=/Volumes/finance_demo/raw_data/files/filings/raw/10q_2026q1.html,fiscal_year=2026,fiscal_quarter=1
-
-# 3) Propagate through bronze → silver → gold
+# Drop the 10-Q HTML into the raw volume, then:
 databricks bundle run build_lakehouse -t dev
 ```
 
-The extract step uses Claude via `ai_extract` to produce a draft anchor row; the review step is a human-in-the-loop notebook that diffs the draft against prior quarters before merging into `_meta.dim_period_anchors`; the regen step re-runs the per-quarter slice of the source-file generators. Supplier master, contracts, and COA are not touched.
+---
 
-Targets: `dev` (profile `aws-e2-demo-field-eng`, mode development, default) and `prod` (host `e2-demo-west`, mode production).
+## Teardown
+```bash
+databricks bundle destroy -t dev          # removes catalog/schemas, pipeline, jobs, app, dashboard
+# The Genie space is provisioned outside the bundle — delete it from the Genie UI,
+# or: databricks api delete /api/2.0/genie/spaces/<id>
+```
 
-## Status
+---
 
-- ✅ DAB scaffold (`databricks.yml`, `resources/`, `jobs/`, `pipelines/` stubs)
-- ✅ Data generators — anchor-driven Polars + NumPy + Mimesis; see [`data/generators/README.md`](data/generators/README.md)
-- ⏳ Bronze / silver / gold SQL — pipeline files are stubs with TODO headers; next step (`fe-databricks-tools:databricks-resource-deployment`)
-- ⏳ 10-Q AI extraction notebooks (`data/ml/extract_10q.py`, `review_anchor_draft.py`, `regenerate_quarter.py`) — stubs; deferred behind ML spend-classification
+## Repository layout
+```
+dbx-finance-ecosystem/
+├── databricks.yml              bundle root + variables + targets (dev, prod)
+├── resources/                  catalog.yml, pipeline.yml (lakehouse), apps.yml, dashboards.yml
+├── jobs/                       generate_data, build_lakehouse, apply_metric_views,
+│                               train_spend_classifier, provision_genie, grant_app_sp, setup
+├── pipelines/                  bronze / silver / gold SQL (one file per source / entity / fact)
+├── data/generators/            anchor-driven synthetic source-file generators
+├── metric_views/               apply_metric_views.py — the 5 governed metric views
+├── genie/                      genie_space_def.py (shared) + provision_genie_space_job.py (job)
+│                               + provision_genie_space.py (CLI)
+├── scripts/                    grant_app_sp_job.py (job) + *_access.py / validate_*.py (CLI)
+├── dashboards/                 spend_visibility.lvdash.json (AI/BI)
+├── apps/spend-analytics/       FastAPI + React app (OBO; Lakebase state)
+├── ml/                         spend-classifier + validation notebooks
+└── _demo/                      design context (start with 00_design_context.md) + todo/
+```
 
-The generators embed ML-friendly signals (30 spend categories, supplier→category mappings, noisy MATGROUP labels, maverick spend, rich descriptions, ground-truth label) so Phase 2 spend classification has training data ready out of the box. See [`data/generators/README.md`](data/generators/README.md#spend-classification--whats-in-the-data-for-ml) for the full ML-data design.
-
-Phase 2 work (UNSPSC taxonomy, spend classification ML, supplier entity resolution, contract leakage detection, savings tracking, maverick spend detection, Lakebase supplier master app, Genie spaces, agents, dashboards) is deferred — gold schema reserves column hooks so Phase 2 is additive.
+The authoritative design lives in [`_demo/00_design_context.md`](_demo/00_design_context.md).
+The MFG industry-prod deployment plan is in
+[`_demo/todo/mfg_prod_deployment.md`](_demo/todo/mfg_prod_deployment.md).

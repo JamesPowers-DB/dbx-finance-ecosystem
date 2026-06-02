@@ -64,25 +64,33 @@ One row per AP invoice line. Built by the Lakeflow pipeline from Fusion AP (`ap_
 
 ### Features (v1 set)
 
+> ⚠️ **Two features were removed for target leakage (2026-06).** `category_primary_hint`
+> (= `dim_supplier.category_primary`) is the supplier's *generative* category — circular
+> with the label — and `supplier_id` one-hot memorizes the near-deterministic
+> supplier→category mapping in this synthetic data. Both let the model read the answer
+> instead of learning it; `prepare_features.py` still writes `category_primary_hint` to
+> the feature tables for analysis, but neither is fed to the model. The classifier now
+> learns from `line_description` + defensible tabular signals.
+
 | Group | Feature | Source | Encoding hint |
 |---|---|---|---|
-| **Text** | `line_description` | `fact_invoices.line_description` | TF-IDF (1–2 gram) baseline; Foundation Model embedding (`databricks-bge-large-en`) for the optional variant |
-| **Categorical (high cardinality)** | `supplier_id` | `fact_invoices.supplier_id` | Target encoding (~3K suppliers) |
-| **Categorical (low cardinality)** | `segment_code` | `fact_invoices.segment_code` | One-hot (4 segments: HAD / HPA / HSB / HET) |
+| **Text** | `line_description` | `fact_invoices.line_description` | TF-IDF (1–2 gram, tuned) baseline; Foundation Model embedding (`databricks-bge-large-en`) for the optional variant |
+| **Categorical (low cardinality)** | `segment_code` | `fact_invoices.segment_code` | One-hot (segments: AD / PA / SB / ET / CORP) |
 | | `payment_terms` | `fact_invoices.payment_terms` | One-hot (Net15 / Net30 / Net45 / Net60) |
 | | `currency` | `fact_invoices.currency` | One-hot |
 | | `supplier_region` | `fact_invoices.supplier_region` | One-hot (NA / EMEA / APAC / LATAM) |
 | | `gl_account` | `fact_invoices.gl_account` | One-hot. **Important signal floor** — the model has to beat a `gl_account → most-common-category` lookup. |
 | | `direct_indirect` | `fact_invoices.direct_indirect` | One-hot (Direct / Indirect — derived from GL account type) |
 | | `addressability` | `fact_invoices.addressability` | One-hot (Addressable / Non-Addressable — derived from supplier flag) |
-| | `category_primary_hint` | `dim_supplier.category_primary` | One-hot — supplier's primary category (~75% match rate with the actual label) |
 | **Numeric (log-transformed)** | `log_amount` | `fact_invoices.amount` | `log1p()` |
 | | `log_quantity` | `fact_invoices.quantity` | `log1p()` |
 | | `log_unit_price` | `fact_invoices.unit_price` | `log1p()` |
-| **Derived** | `supplier_maverick_propensity` | `dim_supplier.maverick_propensity` | Numeric 0–0.3 |
+| **Derived** | `supplier_maverick_propensity` | `dim_supplier.maverick_propensity` | Numeric 0–0.3 (supplier risk score — not a category proxy) |
 | | `is_maverick_supplier` | `supplier_maverick_propensity > maverick_threshold` (default 0.15) | Boolean — drives the maverick eval slice |
 
-Total: **15 features** in v1. Optional ablation features the ML expert may want to try: `supplier_country`, `fiscal_year`/`fiscal_quarter`, `po_matched_flag` (Y/N — PO-matched vs. direct voucher).
+Total: **11 model features** (text + 6 categoricals + 4 numerics) after the leakage fix.
+~~`supplier_id`~~ and ~~`category_primary_hint`~~ removed. Optional ablation features to try:
+`supplier_country`, `fiscal_year`/`fiscal_quarter`, `po_matched_flag`.
 
 ### Inference-output table — `<catalog>.ml.invoice_classifications`
 
@@ -113,16 +121,19 @@ Two parallel models trained and compared:
 ### Baseline — TF-IDF + LightGBM
 
 ```
-line_description ─▶ TF-IDF (1-2 gram, max_features=50000)  ──┐
-supplier_id ─────▶ Target encoder ──────────────────────────┤
-segment_code, payment_terms, currency,                       ├──▶ LightGBM
-supplier_region, gl_account, direct_indirect,                │   (30-class softmax,
-addressability, category_primary_hint ─▶ One-hot ───────────┤    depth ≤ 8,
-log_amount, log_quantity, log_unit_price ───────────────────┤    ~500 trees)
-supplier_maverick_propensity ───────────────────────────────┘
+line_description ─▶ TF-IDF (1-2 gram, tuned max_features)   ──┐
+segment_code, payment_terms, currency,                        ├──▶ LightGBM
+supplier_region, gl_account, direct_indirect,                 │   (30-class softmax,
+addressability ─▶ One-hot ────────────────────────────────────┤    Optuna-tuned
+log_amount, log_quantity, log_unit_price ─────────────────────┤    depth/leaves/lr/…)
+supplier_maverick_propensity ─────────────────────────────────┘
 ```
+*(`supplier_id` and `category_primary_hint` removed — see the leakage note in § Features.)*
 
-Fast to train (~2 min on serverless), interpretable (LightGBM gives per-feature importance + per-prediction SHAP), strong baseline for tabular+text mixes.
+Hyperparameters are tuned with **Optuna** (`hpo_trials`, default 25; macro-F1 on a
+stratified validation sub-sample), then the winning config is refit on the full training
+set and logged with `best_params`. Set `hpo_trials=0` to fall back to fixed defaults.
+Fast to train, interpretable (LightGBM per-feature importance + SHAP), strong tabular+text baseline.
 
 ### Variant — Foundation Model embedding + classifier
 
@@ -188,6 +199,12 @@ For each model alias (`@challenger`, `@challenger_embedding`, plus a `@gl_accoun
 
 Recorded labels carry ~8% intra-parent noise (see § 2), so leaf-tier accuracy is capped near 92%. Parent-tier accuracy should approach 100% because noise is intra-parent only.
 
+> ⚠️ **Targets predate the leakage fix.** The numbers below were set when the model
+> still saw `category_primary_hint` + `supplier_id` (which made parent-tier ~trivial).
+> With those removed, expect leaf-tier accuracy to drop to an *honest* level and the
+> **maverick slice** to become the meaningful headline. Re-baseline these after the
+> first clean Optuna run rather than treating them as regressions.
+
 | Metric | Slice | Target |
 |---|---|---|
 | **Secondary** (leaf) top-1 accuracy | `spend_clf_holdout` | ≥ 85% (ceiling ~92%) |
@@ -214,7 +231,7 @@ Recorded labels carry ~8% intra-parent noise (see § 2), so leaf-tier accuracy i
 ### `batch_inference.py` — score all `fact_invoices` rows → `ml.invoice_classifications`  ✅ DONE
 
 - Resolves `<catalog>.ml.spend_classifier@production` to a concrete version.
-- Reads `gold.fact_invoices` joined with `dim_supplier` (to surface `category_primary_hint`); applies the same log-transforms `prepare_features.py` did. Null categoricals coerced to the `__NA__` sentinel the training pipeline learned.
+- Reads `gold.fact_invoices` (no `dim_supplier` join needed since the leaky `category_primary_hint` was dropped); applies the same log-transforms `prepare_features.py` did. Null categoricals coerced to the `__NA__` sentinel the training pipeline learned.
 - Scores via `mlflow.pyfunc.spark_udf(...)` with a `struct<...>` result type — distributed Spark inference, no `toPandas()` roundtrip.
 - Flattens the struct into 4 prediction columns + stamps `model_version` (formatted as `<catalog>.<schema>.<model>/v<version>`) + `scored_at = current_timestamp()`.
 - MERGEs into `<catalog>.ml.invoice_classifications` keyed by `invoice_line_id` — idempotent.

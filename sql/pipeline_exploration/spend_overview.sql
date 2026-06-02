@@ -10,7 +10,7 @@
 -- Tie-out: fact_invoices.amount per (fy, fq, segment) ≈ anchor cogs+sga+rd ±2%.
 -- ============================================================================
 
-USE CATALOG horizontal_finance_dev;
+USE CATALOG ${var.catalog};
 
 -- Section 1 ------------------------------------------------------------------
 -- Realized spend by segment × fiscal quarter (the headline number).
@@ -23,7 +23,7 @@ SELECT
   COUNT(*)                            AS invoice_lines,
   COUNT(DISTINCT invoice_id)          AS invoices,
   COUNT(DISTINCT supplier_id)         AS suppliers
-FROM gold.fact_invoices
+FROM ${var.schema_gold}.fact_invoices
 GROUP BY ALL
 ORDER BY fiscal_year, fiscal_quarter, segment_code;
 
@@ -35,7 +35,7 @@ SELECT
   ROUND(SUM(amount) / 1e6, 2)    AS spend_mm,
   ROUND(100.0 * SUM(amount) / SUM(SUM(amount)) OVER (), 1) AS pct_of_total,
   COUNT(DISTINCT supplier_id)    AS suppliers
-FROM gold.fact_invoices
+FROM ${var.schema_gold}.fact_invoices
 GROUP BY true_category_primary
 ORDER BY spend_mm DESC;
 
@@ -49,7 +49,7 @@ SELECT
   ROUND(SUM(amount) / 1e6, 2)    AS spend_mm,
   ROUND(AVG(amount), 0)          AS avg_line_amount,
   COUNT(DISTINCT supplier_id)    AS suppliers
-FROM gold.fact_invoices
+FROM ${var.schema_gold}.fact_invoices
 GROUP BY true_category_primary, true_category_secondary
 ORDER BY true_category_primary, spend_mm DESC;
 
@@ -60,7 +60,7 @@ SELECT
   primary_name,
   COUNT(*)                                                          AS n_leaves,
   COLLECT_LIST(secondary_code)                                      AS leaves
-FROM gold.dim_spend_category
+FROM ${var.schema_gold}.dim_spend_category
 GROUP BY primary_code, primary_name
 ORDER BY n_leaves DESC, primary_code;
 
@@ -72,7 +72,7 @@ SELECT
   COUNT(*)                       AS lines,
   ROUND(SUM(amount) / 1e6, 2)    AS spend_mm,
   ROUND(100.0 * SUM(amount) / SUM(SUM(amount)) OVER (), 1) AS pct_of_total
-FROM gold.fact_invoices
+FROM ${var.schema_gold}.fact_invoices
 GROUP BY direct_indirect
 ORDER BY spend_mm DESC;
 
@@ -85,7 +85,7 @@ SELECT
   ROUND(SUM(amount) / 1e6, 2)    AS spend_mm,
   ROUND(100.0 * SUM(amount) / SUM(SUM(amount)) OVER (), 1) AS pct_of_total,
   COUNT(DISTINCT supplier_id)    AS suppliers
-FROM gold.fact_invoices
+FROM ${var.schema_gold}.fact_invoices
 GROUP BY addressability
 ORDER BY spend_mm DESC;
 
@@ -101,7 +101,7 @@ WITH pr_stats AS (
     SUM(CASE WHEN pr_status = 'released' THEN 1 ELSE 0 END) AS pr_released,
     SUM(CASE WHEN pr_status = 'cancelled' THEN 1 ELSE 0 END) AS pr_cancelled,
     ROUND(SUM(estimated_extended_amount) / 1e6, 2)        AS pr_estimated_mm
-  FROM gold.fact_purchase_requests
+  FROM ${var.schema_gold}.fact_purchase_requests
   GROUP BY fiscal_year, fiscal_quarter
 ),
 po_stats AS (
@@ -110,7 +110,7 @@ po_stats AS (
     fiscal_quarter,
     COUNT(*)                                              AS po_lines,
     ROUND(SUM(extended_amount) / 1e6, 2)                  AS po_committed_mm
-  FROM gold.fact_purchase_orders
+  FROM ${var.schema_gold}.fact_purchase_orders
   GROUP BY fiscal_year, fiscal_quarter
 ),
 inv_stats AS (
@@ -119,7 +119,7 @@ inv_stats AS (
     fiscal_quarter,
     COUNT(*)                                              AS inv_lines,
     ROUND(SUM(amount) / 1e6, 2)                           AS inv_realized_mm
-  FROM gold.fact_invoices
+  FROM ${var.schema_gold}.fact_invoices
   GROUP BY fiscal_year, fiscal_quarter
 )
 SELECT
@@ -149,7 +149,7 @@ SELECT
   fi.supplier_maverick_propensity,
   ROUND(SUM(fi.amount) / 1e6, 2) AS spend_mm,
   COUNT(*)                       AS invoice_lines
-FROM gold.fact_invoices fi
+FROM ${var.schema_gold}.fact_invoices fi
 GROUP BY ALL
 ORDER BY spend_mm DESC
 LIMIT 20;
@@ -163,7 +163,7 @@ SELECT
   fiscal_quarter,
   COUNT(DISTINCT invoice_id)     AS invoices,
   ROUND(SUM(amount) / 1e6, 2)    AS amount_mm
-FROM gold.fact_invoices
+FROM ${var.schema_gold}.fact_invoices
 GROUP BY ALL
 ORDER BY fiscal_year, fiscal_quarter, po_matched_flag;
 
@@ -179,7 +179,7 @@ SELECT
                          WHEN is_on_time_payment = FALSE THEN 0.0
                          ELSE NULL END), 1)                            AS on_time_pct,
   ROUND(AVG(days_to_pay), 1)                                          AS avg_days_to_pay
-FROM gold.fact_invoices
+FROM ${var.schema_gold}.fact_invoices
 GROUP BY ALL
 ORDER BY fiscal_year, fiscal_quarter, payment_status;
 
@@ -191,7 +191,7 @@ SELECT
   COUNT(DISTINCT invoice_id)         AS invoices,
   ROUND(SUM(amount) / 1e6, 2)        AS amount_mm,
   ROUND(100.0 * SUM(amount) / SUM(SUM(amount)) OVER (), 1) AS pct_of_spend
-FROM gold.fact_invoices
+FROM ${var.schema_gold}.fact_invoices
 GROUP BY payment_terms
 ORDER BY amount_mm DESC;
 
@@ -205,7 +205,7 @@ SELECT
   ROUND(AVG(suppliers_invited), 1)                    AS avg_invited,
   ROUND(AVG(suppliers_responded * 1.0 / NULLIF(suppliers_invited, 0)) * 100, 1) AS response_pct,
   ROUND(SUM(awarded_amount) / 1e6, 2)                 AS awarded_mm
-FROM silver.sourcing_event
+FROM ${var.schema_silver}.sourcing_event
 GROUP BY ALL
 ORDER BY fiscal_year, fiscal_quarter, event_type;
 
@@ -221,8 +221,8 @@ SELECT
   COUNT(DISTINCT po.po_number)                                                 AS resulting_pos,
   ROUND(100.0 * COUNT(DISTINCT po.po_number) / NULLIF(COUNT(DISTINCT pr.pr_number), 0), 1)
                                                                                AS conversion_pct
-FROM gold.fact_purchase_requests pr
-LEFT JOIN gold.fact_purchase_orders po
+FROM ${var.schema_gold}.fact_purchase_requests pr
+LEFT JOIN ${var.schema_gold}.fact_purchase_orders po
   ON pr.pr_number = po.source_pr_number
 WHERE pr.pr_status = 'released'
 GROUP BY ALL
@@ -242,7 +242,7 @@ SELECT
                          THEN 1.0 ELSE 0.0 END), 1)         AS leaf_accuracy_pct,
   ROUND(100.0 * AVG(CASE WHEN predicted_primary_category = true_category_primary
                          THEN 1.0 ELSE 0.0 END), 1)         AS parent_accuracy_pct
-FROM gold.fact_invoices
+FROM ${var.schema_gold}.fact_invoices
 GROUP BY has_prediction
 ORDER BY has_prediction DESC;
 
@@ -255,7 +255,7 @@ SELECT
   predicted_primary_category                                AS pred_parent,
   COUNT(*)                                                  AS lines,
   ROUND(SUM(amount) / 1e6, 2)                               AS spend_mm
-FROM gold.fact_invoices
+FROM ${var.schema_gold}.fact_invoices
 WHERE predicted_primary_category IS NOT NULL
   AND true_category_primary <> predicted_primary_category
 GROUP BY ALL

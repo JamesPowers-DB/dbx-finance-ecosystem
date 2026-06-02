@@ -1,0 +1,31 @@
+resources:
+  jobs:
+    grant_app_sp:
+      name: finance-demo-grant-app-sp-${bundle.target}
+      description: >
+        Grant the app's auto-created service principal its UC + Genie access:
+        schema-level USE/SELECT on gold/silver/ml (covers all current + future
+        tables and metric views) and CAN_RUN on the Genie space. Resolves the SP
+        from the deployed app, so there's no principal to hand-edit. Run after the
+        app is deployed and the Genie space exists.
+      max_concurrent_runs: 1
+      email_notifications: {}
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+      tasks:
+        - task_key: grant_app_sp
+          environment_key: default
+          notebook_task:
+            notebook_path: ../scripts/grant_app_sp_job.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_gold: ${var.schema_gold}
+              schema_silver: ${var.schema_silver}
+              schema_ml: ${var.schema_ml}
+              app_name: spend-analytics-${bundle.target}
+              target: ${bundle.target}
+      queue:
+        enabled: true

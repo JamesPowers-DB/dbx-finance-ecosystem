@@ -1,7 +1,7 @@
 -- ============================================================================
 -- REVENUE — exploration queries
 -- ============================================================================
-USE CATALOG horizontal_finance_dev;
+USE CATALOG ${var.catalog};
 
 -- Section 1 ------------------------------------------------------------------
 -- Total revenue by segment × fiscal quarter. Ties to _meta.dim_period_anchors.revenue ±2%.
@@ -13,7 +13,7 @@ SELECT
   COUNT(*)                           AS billing_events,
   COUNT(DISTINCT customer_id)        AS customers,
   COUNT(DISTINCT contract_id)        AS contracts
-FROM gold.fact_revenue
+FROM ${var.schema_gold}.fact_revenue
 GROUP BY ALL
 ORDER BY fiscal_year, fiscal_quarter, segment_code;
 
@@ -27,8 +27,8 @@ SELECT
   ROUND(SUM(fr.amount) / 1e6, 2)      AS revenue_mm,
   COUNT(DISTINCT fr.contract_id)      AS contracts,
   COUNT(*)                            AS billing_events
-FROM gold.fact_revenue fr
-LEFT JOIN gold.dim_customer c USING (customer_id)
+FROM ${var.schema_gold}.fact_revenue fr
+LEFT JOIN ${var.schema_gold}.dim_customer c USING (customer_id)
 GROUP BY ALL
 ORDER BY revenue_mm DESC
 LIMIT 20;
@@ -41,7 +41,7 @@ SELECT
   fiscal_quarter,
   COUNT(*)                          AS events,
   ROUND(SUM(amount) / 1e6, 2)       AS amount_mm
-FROM gold.fact_revenue
+FROM ${var.schema_gold}.fact_revenue
 GROUP BY ALL
 ORDER BY fiscal_year, fiscal_quarter, status;
 
@@ -55,7 +55,7 @@ SELECT
   ROUND(AVG(effective_contract_value) / 1e3, 1)  AS avg_value_k,
   ROUND(PERCENTILE_APPROX(effective_contract_value, 0.50) / 1e3, 1) AS p50_value_k,
   ROUND(PERCENTILE_APPROX(effective_contract_value, 0.95) / 1e3, 1) AS p95_value_k
-FROM silver.contract_outbound
+FROM ${var.schema_silver}.contract_outbound
 GROUP BY ALL
 ORDER BY segment_code, status;
 
@@ -66,7 +66,7 @@ SELECT
   COUNT(*)                          AS events,
   ROUND(SUM(amount) / 1e6, 2)       AS revenue_mm,
   ROUND(100.0 * SUM(amount) / SUM(SUM(amount)) OVER (), 1) AS pct_of_revenue
-FROM gold.fact_revenue
+FROM ${var.schema_gold}.fact_revenue
 GROUP BY currency
 ORDER BY revenue_mm DESC;
 
@@ -78,6 +78,6 @@ SELECT
   status,
   COUNT(*)                          AS invoices,
   ROUND(SUM(total_amount) / 1e6, 2) AS amount_mm
-FROM silver.invoice_ar
+FROM ${var.schema_silver}.invoice_ar
 GROUP BY ALL
 ORDER BY fiscal_year, fiscal_quarter, status;

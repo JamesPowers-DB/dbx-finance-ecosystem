@@ -1,7 +1,7 @@
 -- ============================================================================
 -- FP&A — actuals / budgets / forecasts exploration
 -- ============================================================================
-USE CATALOG horizontal_finance_dev;
+USE CATALOG ${var.catalog};
 
 -- Section 1 ------------------------------------------------------------------
 -- Actuals by segment × fiscal quarter × account type.
@@ -12,13 +12,13 @@ SELECT
   account_type,
   ROUND(amount_usd / 1e6, 2)          AS amount_mm,
   entry_count
-FROM gold.fact_fpa_actuals
+FROM ${var.schema_gold}.fact_fpa_actuals
 ORDER BY fiscal_year, fiscal_quarter, segment_code, account_type;
 
 -- Section 2 ------------------------------------------------------------------
 -- Side-by-side: actuals vs budget vs forecast for the most recent quarter.
 WITH recent AS (
-  SELECT MAX(fiscal_year * 10 + fiscal_quarter) AS fyq FROM gold.fact_fpa_actuals
+  SELECT MAX(fiscal_year * 10 + fiscal_quarter) AS fyq FROM ${var.schema_gold}.fact_fpa_actuals
 )
 SELECT
   a.fiscal_year,
@@ -30,10 +30,10 @@ SELECT
   ROUND(f.amount_usd / 1e6, 2)        AS forecast_mm,
   ROUND((a.amount_usd - b.amount_usd) / NULLIF(b.amount_usd, 0) * 100, 1) AS var_act_vs_bud_pct,
   ROUND((a.amount_usd - f.amount_usd) / NULLIF(f.amount_usd, 0) * 100, 1) AS var_act_vs_fcst_pct
-FROM gold.fact_fpa_actuals a
-LEFT JOIN gold.fact_fpa_budgets b
+FROM ${var.schema_gold}.fact_fpa_actuals a
+LEFT JOIN ${var.schema_gold}.fact_fpa_budgets b
   USING (fiscal_year, fiscal_quarter, segment_code, account_type)
-LEFT JOIN gold.fact_fpa_forecasts f
+LEFT JOIN ${var.schema_gold}.fact_fpa_forecasts f
   USING (fiscal_year, fiscal_quarter, segment_code, account_type)
 WHERE (a.fiscal_year * 10 + a.fiscal_quarter) = (SELECT fyq FROM recent)
 ORDER BY a.segment_code, a.account_type;
@@ -42,7 +42,7 @@ ORDER BY a.segment_code, a.account_type;
 -- Year-over-year segment revenue growth.
 WITH rev AS (
   SELECT fiscal_year, segment_code, SUM(amount_usd) AS revenue
-  FROM gold.fact_fpa_actuals
+  FROM ${var.schema_gold}.fact_fpa_actuals
   WHERE account_type = 'REVENUE'
   GROUP BY ALL
 )
@@ -60,7 +60,7 @@ ORDER BY segment_code, fiscal_year;
 -- Operating margin per segment per quarter (REVENUE - COGS - SGA - RD).
 WITH p AS (
   SELECT fiscal_year, fiscal_quarter, segment_code, account_type, amount_usd
-  FROM gold.fact_fpa_actuals
+  FROM ${var.schema_gold}.fact_fpa_actuals
 )
 SELECT
   fiscal_year,

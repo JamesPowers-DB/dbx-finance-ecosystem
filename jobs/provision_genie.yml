@@ -1,0 +1,28 @@
+resources:
+  jobs:
+    provision_genie:
+      name: finance-demo-provision-genie-${bundle.target}
+      description: >
+        Create/refresh the Strategic Spend Analytics Genie space, idempotently by
+        TITLE ("Strategic Spend Analytics (${bundle.target})"). The app resolves
+        the space id by this title at runtime, so re-running keeps the same space
+        and nothing has to be written back into app.yaml. Run after apply_metric_views.
+      max_concurrent_runs: 1
+      email_notifications: {}
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+      tasks:
+        - task_key: provision_genie
+          environment_key: default
+          notebook_task:
+            notebook_path: ../genie/provision_genie_space_job.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_gold: ${var.schema_gold}
+              warehouse_id: ${var.warehouse_id}
+              target: ${bundle.target}
+      queue:
+        enabled: true

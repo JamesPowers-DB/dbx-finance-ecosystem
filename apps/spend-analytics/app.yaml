@@ -27,10 +27,12 @@ env:
   - name: LAKEBASE_ENDPOINT
     value: "projects/spend-analytics/branches/production/endpoints/primary"
 
-  # Strategic Spend Analytics Genie Space — used by the ask_genie chatbot tool.
-  # Metric-view-only space (re)provisioned by genie/provision_genie_space.py.
-  - name: GENIE_SPACE_ID
-    value: "01f15c3823f2163a9560dadb4357bb31"
+  # Genie space — the ask_genie tool resolves the space id by TITLE at runtime,
+  # so nothing has to write an id here. Must match the title the setup job
+  # provisions (genie_space_def.space_title): "<base> (<target>)". For a prod
+  # deploy, change "(dev)" to "(prod)". Set GENIE_SPACE_ID to pin a specific id.
+  - name: GENIE_SPACE_TITLE
+    value: "Strategic Spend Analytics (dev)"
 
   # FMAPI serving endpoint for the procurement chatbot.
   # Use a Llama 3.3 70B or Claude endpoint registered in Model Serving.

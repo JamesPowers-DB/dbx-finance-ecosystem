@@ -25,8 +25,14 @@ class Settings(BaseSettings):
     # Databricks host — auto-set inside Apps; set DATABRICKS_HOST locally
     databricks_host: str = Field(default="", validation_alias="DATABRICKS_HOST")
 
-    # Strategic Spend Analytics Genie Space ID — used by the ask_genie chatbot tool
+    # Genie space resolution. The app resolves the space id by TITLE at runtime,
+    # so a bundle-provisioned space needs no id written back into app.yaml. The
+    # title must match genie/genie_space_def.space_title(target), e.g.
+    # "Strategic Spend Analytics (dev)". genie_space_id is an optional explicit
+    # override (back-compat / escape hatch).
     genie_space_id: str = Field(default="", validation_alias="GENIE_SPACE_ID")
+    genie_space_title: str = Field(
+        default="Strategic Spend Analytics (dev)", validation_alias="GENIE_SPACE_TITLE")
 
     # SP M2M credentials — saved under APP_SP_* names before CLIENT_ID/SECRET
     # are cleared at startup. Used by the chatbot to get an M2M token for FMAPI.

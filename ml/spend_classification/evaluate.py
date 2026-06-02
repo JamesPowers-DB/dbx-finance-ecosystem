@@ -46,9 +46,9 @@ import pandas as pd
 from datetime import datetime
 
 TEXT_COL = "line_description"
-CAT_COLS = ["supplier_id", "segment_code", "payment_terms", "currency",
-            "supplier_region", "gl_account", "direct_indirect",
-            "addressability", "category_primary_hint"]
+# Keep in lockstep with train_baseline.py — leaky supplier_id + category_primary_hint dropped.
+CAT_COLS = ["segment_code", "payment_terms", "currency",
+            "supplier_region", "gl_account", "direct_indirect", "addressability"]
 NUM_COLS = ["log_amount", "log_quantity", "log_unit_price",
             "supplier_maverick_propensity"]
 FEATURE_COLS = [TEXT_COL] + CAT_COLS + NUM_COLS
