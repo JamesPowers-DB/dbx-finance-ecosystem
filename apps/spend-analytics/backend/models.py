@@ -54,6 +54,7 @@ class ContractRow(BaseModel):
     trailing_12m_spend: float | None
     status: str
     region: str | None
+    source_system: str | None = None
 
 
 class BurnDownPoint(BaseModel):
@@ -105,17 +106,6 @@ class SupplierRow(BaseModel):
     invoice_count: int | None
     on_time_payment_pct: float | None
     avg_dpo: float | None
-
-
-class RenegotiationTarget(BaseModel):
-    supplier_id: str
-    supplier_name: str | None
-    current_payment_terms: str | None
-    current_dpo: float | None
-    target_dpo: int
-    working_capital_opportunity_usd: float
-    trailing_12m_spend: float | None
-    category_primary: str | None
 
 
 # ── Cost Savings ──────────────────────────────────────────────────────────────
@@ -215,39 +205,3 @@ class ChatMessageCreate(BaseModel):
     content: str
 
 
-# ── Labeling Monitor ──────────────────────────────────────────────────────────
-
-class LabelingCoverageRow(BaseModel):
-    fiscal_year: int
-    fiscal_quarter: int
-    segment_code: str
-    total_lines: int
-    classified_lines: int
-    coverage_pct: float
-
-
-class ConfidenceBucket(BaseModel):
-    bucket: str       # e.g. "0.0–0.1"
-    count: int
-    tier: str         # "primary" or "secondary"
-
-
-class DisagreementRow(BaseModel):
-    invoice_line_id: str
-    invoice_date: date | None
-    segment_code: str | None
-    supplier_name: str | None
-    line_description: str | None
-    amount: float | None
-    true_category_secondary: str | None
-    predicted_secondary_category: str | None
-    secondary_confidence: float | None
-
-
-class ModelHistoryRow(BaseModel):
-    run_id: str | None
-    model_alias: str | None
-    eval_date: datetime | None
-    holdout_leaf_accuracy: float | None
-    maverick_leaf_accuracy: float | None
-    holdout_parent_accuracy: float | None

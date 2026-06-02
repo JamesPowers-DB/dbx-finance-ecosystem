@@ -18,17 +18,6 @@ from ..db import fetch_all
 
 router = APIRouter(prefix="/suppliers", tags=["suppliers"])
 
-# DPO targets by current payment terms bucket (treasury-policy heuristic;
-# the renegotiation_targets endpoint surfaces these as the "stretch to"
-# number for working-capital opportunity).
-_TARGET_DPO: dict[str, int] = {
-    "Net15": 45,
-    "Net30": 60,
-    "Net45": 60,
-    "Net60": 60,
-}
-
-
 # Per-supplier T12M scorecard row, sourced from the governed supplier-performance
 # metric view (gold.mv_supplier_performance, nested on mv_spend). This is a
 # metric-view query (MEASURE + GROUP BY ALL); callers wrap it as a subquery so
@@ -104,52 +93,6 @@ def list_suppliers(
     return fetch_all(caller, sql, params)
 
 
-@router.get("/renegotiation_targets", response_model=list[dict])
-def renegotiation_targets(
-    top_n: int = Query(default=25, le=100),
-    caller: CallerIdentity = Depends(caller_identity),
-) -> list[dict]:
-    """Top suppliers ranked by working-capital opportunity from payment-terms extension.
-    Regulated suppliers are always excluded. Spend filter restricts to T12M paid invoices."""
-    s = get_settings()
-    sql = f"""
-        SELECT
-            supplier_id,
-            supplier_name,
-            payment_terms                                       AS current_payment_terms,
-            avg_dpo                                             AS current_dpo,
-            CASE payment_terms
-                WHEN 'Net15' THEN 45
-                WHEN 'Net30' THEN 60
-                WHEN 'Net45' THEN 60
-                ELSE              60
-            END                                                 AS target_dpo,
-            ROUND(
-                trailing_12m_spend
-                / 365.0
-                * GREATEST(
-                    0,
-                    CASE payment_terms
-                        WHEN 'Net15' THEN 45
-                        WHEN 'Net30' THEN 60
-                        WHEN 'Net45' THEN 60
-                        ELSE              60
-                    END - COALESCE(avg_dpo, 30)
-                ),
-                2
-            )                                                   AS working_capital_opportunity_usd,
-            trailing_12m_spend,
-            category_primary
-        FROM ({_mvsp_inner_sql(s)})
-        WHERE COALESCE(is_regulated_supplier, FALSE) = FALSE
-          AND trailing_12m_spend > 100000
-          AND payment_terms IN ('Net15', 'Net30', 'Net45')
-        ORDER BY working_capital_opportunity_usd DESC
-        LIMIT ?
-    """
-    return fetch_all(caller, sql, [top_n])
-
-
 @router.get("/{supplier_id}/scorecard", response_model=dict)
 def supplier_scorecard(
     supplier_id: str,
@@ -209,7 +152,7 @@ def supplier_scorecard(
     )
 
     # Spend trend — last 8 quarters of PAID spend, ascending so the
-    # SparklineChart renders left-to-right chronologically.
+    # trend line chart renders left-to-right chronologically.
     spend_trend = fetch_all(
         caller,
         f"""
@@ -228,8 +171,110 @@ def supplier_scorecard(
         [supplier_id],
     )
 
+    # Dimensional attributes from the supplier master. `aliases_resolved` counts
+    # the source records that entity-resolution collapsed into this supplier —
+    # a nice "one governed supplier from N feeds" detail for the demo.
+    attributes = fetch_all(
+        caller,
+        f"""
+        SELECT
+            d.country_code, d.region, d.created_date, d.category_primary,
+            d.segment_affinity, d.payment_terms, d.is_regulated_supplier,
+            d.entity_resolution_cluster_id,
+            (SELECT COUNT(*) FROM {s.gold}.dim_supplier x
+             WHERE x.entity_resolution_cluster_id = d.entity_resolution_cluster_id) AS aliases_resolved
+        FROM {s.gold}.dim_supplier d
+        WHERE d.supplier_id = ?
+        """,
+        [supplier_id],
+    )
+
+    # Spend economics — the bases the renegotiation what-if model needs, all T12M
+    # paid, all from mv_spend so they reconcile with the header.
+    economics = fetch_all(
+        caller,
+        f"""
+        SELECT
+            ROUND(MEASURE(total_spend), 2)       AS paid_spend,
+            ROUND(MEASURE(addressable_spend), 2) AS addressable_spend,
+            ROUND(MEASURE(managed_spend), 2)     AS managed_spend,
+            ROUND(MEASURE(unmanaged_spend), 2)   AS unmanaged_spend
+        FROM {s.gold}.mv_spend
+        WHERE supplier_id = ?
+          AND invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
+        GROUP BY ALL
+        """,
+        [supplier_id],
+    )
+
+    # ML spend-classification results for this supplier (T12M paid): the predicted
+    # category mix + per-category confidence, plus headline agreement (predicted ==
+    # true) and coverage. Sourced from fact_invoices (carries the model output).
+    classification_mix = fetch_all(
+        caller,
+        f"""
+        SELECT
+            predicted_primary_category        AS category,
+            ROUND(SUM(amount), 2)             AS spend_usd,
+            COUNT(*)                          AS lines,
+            ROUND(AVG(primary_confidence), 3) AS avg_confidence
+        FROM {s.gold}.fact_invoices
+        WHERE supplier_id = ?
+          AND payment_status = 'PAID'
+          AND invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
+          AND predicted_primary_category IS NOT NULL
+        GROUP BY ALL
+        ORDER BY spend_usd DESC
+        LIMIT 6
+        """,
+        [supplier_id],
+    )
+    classification_summary = fetch_all(
+        caller,
+        f"""
+        SELECT
+            ROUND(AVG(primary_confidence), 3) AS avg_confidence,
+            ROUND(100.0 * COUNT(predicted_primary_category) / NULLIF(COUNT(*), 0), 1) AS classified_pct,
+            ROUND(100.0 * SUM(CASE WHEN predicted_primary_category = true_category_primary THEN 1 ELSE 0 END)
+                  / NULLIF(COUNT(predicted_primary_category), 0), 1) AS agreement_pct
+        FROM {s.gold}.fact_invoices
+        WHERE supplier_id = ?
+          AND payment_status = 'PAID'
+          AND invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
+        """,
+        [supplier_id],
+    )
+
+    # Top 5 spend commitments — POs by committed value (extended_amount), with
+    # status, date, category, and whether the commitment is on contract/sourced.
+    top_commitments = fetch_all(
+        caller,
+        f"""
+        SELECT
+            po_number,
+            MIN(po_created_date)           AS po_date,
+            MAX(po_status)                 AS po_status,
+            ROUND(SUM(extended_amount), 2) AS committed_usd,
+            MAX(true_category_primary)     AS category,
+            MAX(CASE WHEN contract_id IS NOT NULL OR sourcing_event_id IS NOT NULL
+                     THEN 1 ELSE 0 END)    AS on_contract
+        FROM {s.gold}.fact_purchase_orders
+        WHERE supplier_id = ?
+          AND po_created_date >= DATE_SUB(CURRENT_DATE(), 365)
+        GROUP BY po_number
+        ORDER BY committed_usd DESC
+        LIMIT 5
+        """,
+        [supplier_id],
+    )
+
     return {
         **header[0],
+        "attributes": attributes[0] if attributes else {},
+        "economics": economics[0] if economics else {},
+        "classification_summary": classification_summary[0] if classification_summary else {},
+        "classification_mix": classification_mix,
+        "top_commitments": top_commitments,
         "category_breakdown": category_breakdown,
         "contracts": contracts,
         "spend_trend": spend_trend,

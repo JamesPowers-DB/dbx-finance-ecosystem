@@ -4,23 +4,23 @@ import type {
   ChatMessage,
   ChatSession,
   ChatSessionCreate,
-  ConfidenceBucket,
   ContractBurnDown,
   ContractInvoiceRow,
   ContractPORow,
   ContractRow,
   CostReductionRow,
-  DisagreementRow,
+  AnalyticsKpis,
+  CompositionDetailRow,
+  DateRange,
   KpiResponse,
-  LabelingCoverageRow,
+  LifecycleFunnelRow,
   ManagedStatusResponse,
   MeResponse,
-  ModelHistoryRow,
-  RenegotiationTarget,
   SavingsSummaryRow,
   SpendCompositionRow,
   SpendTrendRow,
   SupplierConcentrationRow,
+  TrendGrain,
   SupplierRow,
   SupplierScorecard,
 } from "./types";
@@ -64,8 +64,6 @@ export const getContracts = (params?: Record<string, string>) => {
   const qs = params ? "?" + new URLSearchParams(params).toString() : "";
   return j<ContractRow[]>(`/contracts${qs}`);
 };
-export const getRenewals = (daysOut?: number) =>
-  j<ContractRow[]>(`/contracts/renewals${daysOut ? `?days_out=${daysOut}` : ""}`);
 export const getContractBurnDown = (id: string) =>
   j<ContractBurnDown>(`/contracts/${encodeURIComponent(id)}/burn_down`);
 export const getContractInvoices = (id: string, limit = 100) =>
@@ -78,8 +76,6 @@ export const getSuppliers = (params?: Record<string, string>) => {
   const qs = params ? "?" + new URLSearchParams(params).toString() : "";
   return j<SupplierRow[]>(`/suppliers${qs}`);
 };
-export const getRenegotiationTargets = () =>
-  j<RenegotiationTarget[]>("/suppliers/renegotiation_targets");
 export const getSupplierScorecard = (id: string) =>
   j<SupplierScorecard>(`/suppliers/${encodeURIComponent(id)}/scorecard`);
 
@@ -154,22 +150,18 @@ export async function* streamChatMessage(
   }
 }
 
-// ── Labeling Monitor ──────────────────────────────────────────────────────────
-export const getLabelingCoverage = () =>
-  j<LabelingCoverageRow[]>("/labeling/coverage");
-export const getConfidenceDistribution = (tier: "primary" | "secondary" = "secondary") =>
-  j<ConfidenceBucket[]>(`/labeling/confidence?tier=${tier}`);
-export const getDisagreements = (limit = 200) =>
-  j<DisagreementRow[]>(`/labeling/disagreements?limit=${limit}`);
-export const getModelHistory = () =>
-  j<ModelHistoryRow[]>("/labeling/model_history");
-
 // ── Spend Analytics ─────────────────────────────────────────────────────────────
-export const getSpendComposition = (dim: "category" | "segment" | "pr_source" = "category") =>
-  j<SpendCompositionRow[]>(`/analytics/spend_composition?dim=${dim}`);
-export const getManagedStatus = () =>
-  j<ManagedStatusResponse>("/analytics/managed_status");
-export const getSpendTrend = () =>
-  j<SpendTrendRow[]>("/analytics/spend_trend");
-export const getSupplierConcentration = (limit = 20) =>
-  j<SupplierConcentrationRow[]>(`/analytics/supplier_concentration?limit=${limit}`);
+export const getSpendComposition = (dim: "category" | "segment" | "pr_source" = "category", range: DateRange = "t12m") =>
+  j<SpendCompositionRow[]>(`/analytics/spend_composition?dim=${dim}&range=${range}`);
+export const getCompositionDetail = (dim: string, value: string, range: DateRange = "t12m", limit = 8) =>
+  j<CompositionDetailRow[]>(`/analytics/composition_detail?dim=${dim}&value=${encodeURIComponent(value)}&range=${range}&limit=${limit}`);
+export const getManagedStatus = (range: DateRange = "t12m") =>
+  j<ManagedStatusResponse>(`/analytics/managed_status?range=${range}`);
+export const getSpendTrend = (grain: TrendGrain = "monthly", range: DateRange = "t12m") =>
+  j<SpendTrendRow[]>(`/analytics/spend_trend?grain=${grain}&range=${range}`);
+export const getSupplierConcentration = (limit = 20, range: DateRange = "t12m") =>
+  j<SupplierConcentrationRow[]>(`/analytics/supplier_concentration?limit=${limit}&range=${range}`);
+export const getAnalyticsKpis = (range: DateRange = "t12m") =>
+  j<AnalyticsKpis>(`/analytics/kpis?range=${range}`);
+export const getLifecycleFunnel = (range: DateRange = "t12m") =>
+  j<LifecycleFunnelRow[]>(`/analytics/lifecycle_funnel?range=${range}`);

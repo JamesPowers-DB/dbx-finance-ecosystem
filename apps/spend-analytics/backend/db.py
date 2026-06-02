@@ -7,6 +7,7 @@ the caller's OAuth access token. No connection pool — auth material is per-use
 from __future__ import annotations
 
 from contextlib import contextmanager
+from decimal import Decimal
 from typing import Any, Iterator
 from urllib.parse import urlparse
 
@@ -76,13 +77,25 @@ def warehouse_connection(caller: CallerIdentity) -> Iterator[Any]:
         conn.close()
 
 
+def _coerce(value: Any) -> Any:
+    """Normalize driver-native types for JSON.
+
+    SQL ``DECIMAL`` (what every ``ROUND(MEASURE(...))`` returns) arrives as a
+    Python ``Decimal``. Pydantic v2 serializes ``Decimal`` to a JSON *string*,
+    which then breaks numeric math on the frontend (string concatenation →
+    ``$NaN`` in charts). Coercing to ``float`` here keeps every numeric column a
+    real JSON number for all callers. dates/timestamps serialize fine as-is.
+    """
+    return float(value) if isinstance(value, Decimal) else value
+
+
 def fetch_all(
     caller: CallerIdentity, sql: str, parameters: list[Any] | None = None
 ) -> list[dict[str, Any]]:
     with warehouse_connection(caller) as conn, conn.cursor() as cur:
         cur.execute(sql, parameters or [])
         cols = [d[0] for d in cur.description] if cur.description else []
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
+        return [{c: _coerce(v) for c, v in zip(cols, row)} for row in cur.fetchall()]
 
 
 def fetch_one(

@@ -45,7 +45,6 @@ from .routers import (
     chatbot,
     contracts,
     cost_savings,
-    labeling,
     suppliers,
     system,
 )
@@ -82,7 +81,6 @@ app.include_router(contracts.router, prefix="/api")
 app.include_router(suppliers.router, prefix="/api")
 app.include_router(cost_savings.router, prefix="/api")
 app.include_router(chatbot.router, prefix="/api")
-app.include_router(labeling.router, prefix="/api")
 app.include_router(analytics.router, prefix="/api")
 
 # Serve the built React bundle at /. Computed relative to this file so the

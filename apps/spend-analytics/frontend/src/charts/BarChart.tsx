@@ -16,6 +16,10 @@ interface BarChartProps {
   formatValue?: (v: number) => string;
   label2?: string;
   label1?: string;
+  /** When set, bars become clickable and report their label. */
+  onBarClick?: (label: string) => void;
+  /** When set, the matching bar stays full-opacity and the rest dim. */
+  activeLabel?: string | null;
 }
 
 export function BarChart({
@@ -27,8 +31,10 @@ export function BarChart({
   formatValue = (v) => `$${(v / 1e6).toFixed(2)}M`,
   label1,
   label2,
+  onBarClick,
+  activeLabel,
 }: BarChartProps) {
-  const margin = { top: 12, right: 16, bottom: 24, left: 100 };
+  const margin = { top: 12, right: 48, bottom: 24, left: 100 };
   const innerW = width - margin.left - margin.right;
   const innerH = height - margin.top - margin.bottom;
 
@@ -67,13 +73,31 @@ export function BarChart({
         {data.map((d) => {
           const cy = yBand(d.label) ?? 0;
           const bh = yBand.bandwidth();
-          const w1 = x(d.value);
-          const w2 = d.value2 ? x(d.value2) : 0;
+          // Give any non-zero value at least a 2px sliver so tiny bars next to a
+          // dominant one don't vanish entirely.
+          const w1 = d.value > 0 ? Math.max(x(d.value), 2) : 0;
+          const w2 = d.value2 && d.value2 > 0 ? Math.max(x(d.value2), 2) : 0;
+          const dim = activeLabel && d.label !== activeLabel ? 0.32 : 1;
+          const isActive = activeLabel === d.label;
+          const barEnd = w1 + w2;
+          const valLabel = formatValue(d.value + (d.value2 ?? 0));
+          // If the value label would overflow the right edge, render it inside the
+          // bar end (right-aligned, light) instead of clipping it (the "$2" bug).
+          const labelInside = barEnd + valLabel.length * 6.2 + 6 > innerW;
           return (
-            <g key={d.label}>
-              <rect x={0} y={cy} width={w1} height={bh} rx={2} fill={color} opacity={0.85} />
+            <g
+              key={d.label}
+              onClick={onBarClick ? () => onBarClick(d.label) : undefined}
+              style={{ cursor: onBarClick ? "pointer" : "default" }}
+            >
+              {/* full-width hit area so the whole row is clickable */}
+              {onBarClick && <rect x={0} y={cy} width={innerW} height={bh} fill="transparent" />}
+              <rect x={0} y={cy} width={w1} height={bh} rx={2} fill={color} opacity={0.85 * dim} />
               {d.value2 && (
-                <rect x={w1} y={cy} width={w2} height={bh} rx={2} fill={color2} opacity={0.7} />
+                <rect x={w1} y={cy} width={w2} height={bh} rx={2} fill={color2} opacity={0.7 * dim} />
+              )}
+              {isActive && (
+                <rect x={0} y={cy} width={Math.max(w1 + w2, 2)} height={bh} rx={2} fill="none" stroke="var(--db-lava-600)" strokeWidth={1.5} />
               )}
               <text
                 x={-6}
@@ -87,14 +111,15 @@ export function BarChart({
                 {d.label.length > 14 ? d.label.slice(0, 13) + "…" : d.label}
               </text>
               <text
-                x={w1 + w2 + 4}
+                x={labelInside ? barEnd - 6 : barEnd + 4}
                 y={cy + bh / 2}
+                textAnchor={labelInside ? "end" : "start"}
                 dominantBaseline="middle"
                 fontFamily="var(--font-mono)"
-                fontSize={10}
-                fill="var(--fg-3)"
+                fontSize={11}
+                fill={labelInside ? "var(--fg-on-dark)" : "var(--fg-2)"}
               >
-                {formatValue(d.value + (d.value2 ?? 0))}
+                {valLabel}
               </text>
             </g>
           );

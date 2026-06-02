@@ -286,101 +286,6 @@ const paymentStatusPaid: Metric = {
   formula: "payment_status = 'PAID'",
 };
 
-// ── Labeling monitor ─────────────────────────────────────────────────────────
-
-const coveragePct: Metric = {
-  metric: "Coverage %",
-  period: "Per segment × fiscal quarter",
-  definition:
-    "Share of invoice lines that received an ML-predicted secondary category in this period.",
-  formula: "classified_lines / total_lines",
-};
-
-const avgCoverage: Metric = {
-  metric: "Avg Coverage",
-  period: "All loaded periods",
-  definition:
-    "Average classification coverage across all segment × quarter buckets currently loaded.",
-  formula: "AVG(coverage_pct) across coverage rows",
-};
-
-const totalClassified: Metric = {
-  metric: "Total Classified",
-  period: "All loaded periods",
-  definition:
-    "Total invoice line count with a predicted secondary category across all loaded periods.",
-  formula: "SUM(classified_lines)",
-};
-
-const totalLinesM: Metric = {
-  metric: "Total Lines",
-  period: "All loaded periods",
-  definition: "Total invoice line count (classified + unclassified).",
-  formula: "SUM(total_lines)",
-};
-
-const disagreementsM: Metric = {
-  metric: "Disagreements",
-  period: "Latest inference run",
-  definition:
-    "Count of invoice lines where the ML-predicted secondary category disagrees with the ground-truth label.",
-  formula: "COUNT(*) where true_category_secondary != predicted_secondary_category",
-};
-
-const confidenceLeaf: Metric = {
-  metric: "Confidence (Leaf)",
-  period: "Latest inference run",
-  definition:
-    "Distribution of secondary_confidence scores across classified invoice lines. Dashed line at 0.75 marks the managed-spend threshold.",
-  formula: "Histogram of secondary_confidence in 10 buckets",
-};
-
-const confidenceParent: Metric = {
-  metric: "Confidence (Parent)",
-  period: "Latest inference run",
-  definition:
-    "Distribution of primary_confidence scores across classified invoice lines.",
-  formula: "Histogram of primary_confidence in 10 buckets",
-};
-
-const holdoutAccuracy: Metric = {
-  metric: "Holdout Leaf Accuracy",
-  period: "Per eval run",
-  definition:
-    "Accuracy of leaf (secondary-category) prediction on the held-out evaluation set.",
-  formula: "correct_leaf / eval_rows on holdout split",
-};
-
-const maverickAccuracy: Metric = {
-  metric: "Maverick Leaf Accuracy",
-  period: "Per eval run",
-  definition:
-    "Leaf accuracy on the maverick-spend slice — invoices labeled with categories that disagree with the supplier's typical category. Stress test for the classifier.",
-  formula: "correct_leaf / eval_rows on maverick split",
-};
-
-const parentAccuracy: Metric = {
-  metric: "Holdout Parent Accuracy",
-  period: "Per eval run",
-  definition: "Accuracy of parent (primary-category) prediction on the held-out evaluation set.",
-  formula: "correct_parent / eval_rows on holdout split",
-};
-
-const secondaryConfidenceCol: Metric = {
-  metric: "Secondary Confidence",
-  period: "Latest inference run",
-  definition:
-    "Model's confidence score for the predicted secondary category on this line. Below 0.50 is colored red as a review prompt.",
-  formula: "Model softmax output for the leaf class",
-};
-
-const predictedSecondaryCol: Metric = {
-  metric: "Predicted Secondary",
-  period: "Latest inference run",
-  definition:
-    "Leaf category the classifier predicted for this invoice line. Disagreements with the true label are surfaced here for triage.",
-};
-
 // ── Exported catalog ─────────────────────────────────────────────────────────
 
 export const METRICS = {
@@ -420,19 +325,6 @@ export const METRICS = {
   eventTypeRFP,
   eventTypeOther,
   paymentStatusPaid,
-  // Labeling
-  coveragePct,
-  avgCoverage,
-  totalClassified,
-  totalLines: totalLinesM,
-  disagreements: disagreementsM,
-  confidenceLeaf,
-  confidenceParent,
-  holdoutAccuracy,
-  maverickAccuracy,
-  parentAccuracy,
-  secondaryConfidenceCol,
-  predictedSecondaryCol,
 } as const;
 
 // Convenience: resolve event_type string → the right pill content. Used by

@@ -33,6 +33,7 @@ export interface ContractRow {
   trailing_12m_spend: number | null;
   status: string;
   region: string | null;
+  source_system?: string | null;
 }
 
 export interface BurnDownPoint {
@@ -80,7 +81,53 @@ export interface SupplierRow {
   avg_dpo: number | null;
 }
 
+export interface SupplierAttributes {
+  country_code: string | null;
+  region: string | null;
+  created_date: string | null;
+  category_primary: string | null;
+  segment_affinity: string | null;
+  payment_terms: string | null;
+  is_regulated_supplier: boolean | null;
+  entity_resolution_cluster_id: string | null;
+  aliases_resolved: number | null;
+}
+
+export interface SupplierEconomics {
+  paid_spend: number | null;
+  addressable_spend: number | null;
+  managed_spend: number | null;
+  unmanaged_spend: number | null;
+}
+
+export interface ClassificationSummary {
+  avg_confidence: number | null; // 0–1
+  classified_pct: number | null; // 0–100
+  agreement_pct: number | null;  // 0–100, predicted == true
+}
+
+export interface ClassificationMixRow {
+  category: string | null;
+  spend_usd: number;
+  lines: number;
+  avg_confidence: number | null; // 0–1
+}
+
+export interface TopCommitmentRow {
+  po_number: string;
+  po_date: string | null;
+  po_status: string | null;
+  committed_usd: number;
+  category: string | null;
+  on_contract: number; // 1 = on contract / sourced, 0 = off
+}
+
 export interface SupplierScorecard extends SupplierRow {
+  attributes: SupplierAttributes;
+  economics: SupplierEconomics;
+  classification_summary: ClassificationSummary;
+  classification_mix: ClassificationMixRow[];
+  top_commitments: TopCommitmentRow[];
   category_breakdown: { category: string | null; spend_usd: number }[];
   contracts: {
     contract_workspace_id: string;
@@ -98,17 +145,6 @@ export interface SupplierScorecard extends SupplierRow {
     fiscal_quarter: number;
     spend_usd: number;
   }[];
-}
-
-export interface RenegotiationTarget {
-  supplier_id: string;
-  supplier_name: string | null;
-  current_payment_terms: string | null;
-  current_dpo: number | null;
-  target_dpo: number;
-  working_capital_opportunity_usd: number;
-  trailing_12m_spend: number | null;
-  category_primary: string | null;
 }
 
 export interface CostReductionRow {
@@ -197,42 +233,6 @@ export interface ChatMessage {
   created_at: string;
 }
 
-export interface LabelingCoverageRow {
-  fiscal_year: number;
-  fiscal_quarter: number;
-  segment_code: string;
-  total_lines: number;
-  classified_lines: number;
-  coverage_pct: number;
-}
-
-export interface ConfidenceBucket {
-  bucket: string;
-  count: number;
-  tier: string;
-}
-
-export interface DisagreementRow {
-  invoice_line_id: string;
-  invoice_date: string | null;
-  segment_code: string | null;
-  supplier_name: string | null;
-  line_description: string | null;
-  amount: number | null;
-  true_category_secondary: string | null;
-  predicted_secondary_category: string | null;
-  secondary_confidence: number | null;
-}
-
-export interface ModelHistoryRow {
-  run_id: string | null;
-  model_alias: string | null;
-  eval_date: string | null;
-  holdout_leaf_accuracy: number | null;
-  maverick_leaf_accuracy: number | null;
-  holdout_parent_accuracy: number | null;
-}
-
 // ── Spend Analytics dashboard ───────────────────────────────────────────────────
 export interface SpendCompositionRow {
   label: string | null;
@@ -252,11 +252,39 @@ export interface ManagedStatusResponse {
   managed_pct_count: number;  // by invoice-line count (already ×100)
 }
 
-export interface SpendTrendRow {
-  fiscal_year: number;
-  fiscal_quarter: number;
+export type TrendGrain = "daily" | "weekly" | "monthly" | "quarterly";
+
+export type DateRange = "90d" | "t12m" | "t24m" | "all";
+
+export interface CompositionDetailRow {
+  supplier_id: string;
+  supplier_name: string | null;
   total_spend: number;
   managed_spend: number;
+  managed_pct: number | null;
+}
+
+export interface SpendTrendRow {
+  period: string; // truncated invoice_date (ISO), grain-dependent
+  total_spend: number;
+  managed_spend: number;
+}
+
+export interface AnalyticsKpis {
+  total_spend: number;
+  addressable_spend: number;
+  managed_pct: number;     // already ×100
+  on_time_pct: number;     // already ×100
+  avg_dpo: number;
+  active_suppliers: number;
+}
+
+export interface LifecycleFunnelRow {
+  stage: string;
+  caption: string;
+  amount: number;
+  leak: number | null;
+  leak_label: string | null;
 }
 
 export interface SupplierConcentrationRow {

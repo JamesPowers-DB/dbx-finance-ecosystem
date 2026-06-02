@@ -45,14 +45,6 @@ const TILES = [
     accent: "var(--db-lava-600)",
     accent2: "var(--db-maroon-700)",
   },
-  {
-    id: "labeling",
-    label: "Spend Labeling Monitor",
-    desc: "ML classification coverage, confidence distributions, and model history.",
-    kind: "orbit" as const,
-    accent: "var(--db-navy-800)",
-    accent2: "var(--db-blue-700)",
-  },
 ];
 
 export function Home({ onNavigate }: HomeProps) {

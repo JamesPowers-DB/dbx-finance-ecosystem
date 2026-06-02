@@ -103,7 +103,8 @@ def list_contracts(
             DATEDIFF(c.expiration_date, CURRENT_DATE())             AS days_to_expiration,
             COALESCE(inv_agg.trailing_12m_spend, 0)                AS trailing_12m_spend,
             c.status,
-            c.region
+            c.region,
+            c.source_system
         FROM {s.silver}.contract_inbound c
         LEFT JOIN {s.gold}.dim_supplier s
             ON c.supplier_id = s.supplier_id
@@ -117,46 +118,6 @@ def list_contracts(
     """
     params.append(limit)
     return fetch_all(caller, sql, params)
-
-
-@router.get("/renewals", response_model=list[ContractRow])
-def renewal_queue(
-    days_out: int = Query(default=180, le=365),
-    caller: CallerIdentity = Depends(caller_identity),
-) -> list[dict]:
-    """Contracts expiring within `days_out` days, sorted by trailing 12m spend desc."""
-    s = get_settings()
-    sql = f"""
-        SELECT
-            c.contract_workspace_id,
-            c.contract_type,
-            c.title,
-            c.supplier_id,
-            s.supplier_name,
-            c.effective_date,
-            c.expiration_date,
-            c.total_committed_spend,
-            cons.contract_scoped_spend                              AS actual_spend_to_date,
-            cons.pct_consumed,
-            DATEDIFF(c.expiration_date, CURRENT_DATE())             AS days_to_expiration,
-            COALESCE(inv_agg.trailing_12m_spend, 0)                AS trailing_12m_spend,
-            c.status,
-            c.region
-        FROM {s.silver}.contract_inbound c
-        LEFT JOIN {s.gold}.dim_supplier s
-            ON c.supplier_id = s.supplier_id
-        LEFT JOIN ({t12m_supplier_spend_sql(s)}) inv_agg
-            ON c.supplier_id = inv_agg.supplier_id
-        LEFT JOIN ({_contract_scoped_consumption_sql(s)}) cons
-            ON c.contract_workspace_id = cons.contract_workspace_id
-        WHERE c.contract_type IN ('Statement of Work', 'Framework')
-          AND c.status = 'Active'
-          AND c.effective_date <= CURRENT_DATE()
-          AND c.expiration_date BETWEEN CURRENT_DATE() AND DATE_ADD(CURRENT_DATE(), ?)
-        ORDER BY trailing_12m_spend DESC NULLS LAST
-        LIMIT 100
-    """
-    return fetch_all(caller, sql, [days_out])
 
 
 @router.get("/{contract_id}/burn_down", response_model=ContractBurnDown)

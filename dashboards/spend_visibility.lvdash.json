@@ -136,8 +136,8 @@
                       "expression": "DATE_TRUNC(\"MONTH\", `invoice_date`)"
                     },
                     {
-                      "name": "measure(unmanaged_spend)",
-                      "expression": "MEASURE(`unmanaged_spend`)"
+                      "name": "measure(managed_spend_pct)",
+                      "expression": "MEASURE(`managed_spend_pct`)"
                     }
                   ],
                   "disaggregated": false,
@@ -159,7 +159,7 @@
               "widgetType": "counter",
               "encodings": {
                 "value": {
-                  "fieldName": "measure(unmanaged_spend)",
+                  "fieldName": "measure(managed_spend_pct)",
                   "style": {
                     "rules": [
                       {
@@ -169,6 +169,13 @@
                         "color": "#00A972"
                       }
                     ]
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
                   },
                   "displayName": "Managed Spend %"
                 },
@@ -1002,7 +1009,7 @@
           "position": {
             "x": 0,
             "y": 28,
-            "width": 8,
+            "width": 12,
             "height": 8
           }
         },

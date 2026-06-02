@@ -16,7 +16,6 @@ export const NAV: readonly NavItem[] = [
   { id: "suppliers",  label: "Suppliers",          icon: "suppliers" },
   { id: "savings",    label: "Cost Savings",        icon: "savings" },
   { id: "chatbot",    label: "Procurement Chatbot", icon: "bot" },
-  { id: "labeling",   label: "Labeling Monitor",    icon: "monitor" },
 ];
 
 interface SidebarProps {
