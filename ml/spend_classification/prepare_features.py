@@ -18,30 +18,28 @@
 from pyspark.sql import functions as F
 
 dbutils.widgets.text("catalog", "")
-dbutils.widgets.text("schema_gold", "")
-dbutils.widgets.text("schema_ml", "")
+dbutils.widgets.text("schema", "finance_spend_analytics")
 dbutils.widgets.text("maverick_threshold", "0.15")
 dbutils.widgets.text("test_size", "0.20")
 dbutils.widgets.text("random_seed", "42")
 
 catalog = dbutils.widgets.get("catalog")
-schema_gold = dbutils.widgets.get("schema_gold")
-schema_ml = dbutils.widgets.get("schema_ml")
+schema = dbutils.widgets.get("schema")
 maverick_threshold = float(dbutils.widgets.get("maverick_threshold"))
 test_size = float(dbutils.widgets.get("test_size"))
 random_seed = int(dbutils.widgets.get("random_seed"))
 
-assert catalog and schema_gold and schema_ml, "catalog / schema_gold / schema_ml must be set"
+assert catalog and schema, "catalog / schema must be set"
 
-print(f"Source: {catalog}.{schema_gold}.fact_invoices  +  {catalog}.{schema_gold}.dim_supplier")
-print(f"Target: {catalog}.{schema_ml}.spend_clf_*")
+print(f"Source: {catalog}.{schema}.gold_fact_invoices  +  {catalog}.{schema}.gold_dim_supplier")
+print(f"Target: {catalog}.{schema}.ml_spend_clf_*")
 print(f"Maverick threshold: {maverick_threshold}  |  test_size: {test_size}  |  seed: {random_seed}")
 
 # COMMAND ----------
 # MAGIC %md ## Ensure target schema exists
 
 # COMMAND ----------
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema_ml}`")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")
 
 # COMMAND ----------
 # MAGIC %md ## Project features
@@ -86,15 +84,15 @@ features = spark.sql(f"""
       WHEN COALESCE(CAST(fi.supplier_maverick_propensity AS DOUBLE), 0.0) > {maverick_threshold} THEN TRUE
       ELSE FALSE
     END AS is_maverick_supplier
-  FROM `{catalog}`.`{schema_gold}`.fact_invoices fi
-  LEFT JOIN `{catalog}`.`{schema_gold}`.dim_supplier ds USING (supplier_id)
+  FROM `{catalog}`.`{schema}`.gold_fact_invoices fi
+  LEFT JOIN `{catalog}`.`{schema}`.gold_dim_supplier ds USING (supplier_id)
   WHERE fi.true_category_secondary IS NOT NULL
 """)
 
 total_rows = features.count()
 print(f"Projected {total_rows:,} feature rows from fact_invoices")
 assert total_rows > 0, (
-    f"No rows projected from {catalog}.{schema_gold}.fact_invoices — check that the "
+    f"No rows projected from {catalog}.{schema}.gold_fact_invoices — check that the "
     "lakehouse pipeline has run and `true_category_secondary` is populated."
 )
 
@@ -121,7 +119,10 @@ unique_labels = [r.label for r in regular.select("label").distinct().collect()]
 train_frac = 1.0 - test_size
 fractions = {label: train_frac for label in unique_labels}
 
-train = regular.sampleBy("label", fractions, seed=random_seed).cache()
+# No .cache()/.persist() — PERSIST is unsupported on serverless. The sampleBy is
+# seeded, so re-evaluation (for the holdout left-anti join, counts, and write) is
+# deterministic and yields the same split.
+train = regular.sampleBy("label", fractions, seed=random_seed)
 
 # Holdout = regular minus train, via left_anti on the natural key (invoice_line_id).
 holdout = regular.join(
@@ -144,11 +145,11 @@ print(f"Sum check: {train_n + holdout_n + maverick_n:,}  vs total {total_rows:,}
 
 # COMMAND ----------
 for table_name, df in [
-    ("spend_clf_train", train),
-    ("spend_clf_holdout", holdout),
-    ("spend_clf_maverick_holdout", maverick),
+    ("ml_spend_clf_train", train),
+    ("ml_spend_clf_holdout", holdout),
+    ("ml_spend_clf_maverick_holdout", maverick),
 ]:
-    fqn = f"`{catalog}`.`{schema_ml}`.{table_name}"
+    fqn = f"`{catalog}`.`{schema}`.{table_name}"
     (df.write.format("delta")
        .mode("overwrite")
        .option("overwriteSchema", "true")
@@ -163,8 +164,8 @@ for table_name, df in [
 # MAGIC - Maverick holdout is non-trivially sized.
 
 # COMMAND ----------
-train_labels   = {r.label for r in spark.table(f"`{catalog}`.`{schema_ml}`.spend_clf_train").select("label").distinct().collect()}
-holdout_labels = {r.label for r in spark.table(f"`{catalog}`.`{schema_ml}`.spend_clf_holdout").select("label").distinct().collect()}
+train_labels   = {r.label for r in spark.table(f"`{catalog}`.`{schema}`.ml_spend_clf_train").select("label").distinct().collect()}
+holdout_labels = {r.label for r in spark.table(f"`{catalog}`.`{schema}`.ml_spend_clf_holdout").select("label").distinct().collect()}
 
 missing_from_train = holdout_labels - train_labels
 missing_from_holdout = train_labels - holdout_labels
@@ -176,12 +177,12 @@ if not missing_from_train and not missing_from_holdout:
     print(f"✓ All {len(train_labels)} labels appear in both train and holdout")
 
 print("\nPer-class train counts (smallest 5):")
-spark.table(f"`{catalog}`.`{schema_ml}`.spend_clf_train") \
+spark.table(f"`{catalog}`.`{schema}`.ml_spend_clf_train") \
      .groupBy("label").count() \
      .orderBy("count").limit(5).show(truncate=False)
 
 print("\nPer-class train counts (largest 5):")
-spark.table(f"`{catalog}`.`{schema_ml}`.spend_clf_train") \
+spark.table(f"`{catalog}`.`{schema}`.ml_spend_clf_train") \
      .groupBy("label").count() \
      .orderBy(F.col("count").desc()).limit(5).show(truncate=False)
 

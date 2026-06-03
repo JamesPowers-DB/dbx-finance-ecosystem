@@ -1,15 +1,16 @@
 resources:
   jobs:
     generate_data:
-      name: finance-demo-generate-data-${bundle.target}
+      name: finance-spend-analytics-generate-data-${bundle.target}
       description: >
-        Synthesize source-shaped raw files into /Volumes/${var.catalog}/raw_data/files/.
+        Synthesize source-shaped raw files into
+        /Volumes/${var.catalog}/${var.schema}/${var.raw_volume}/.
 
         Order: macro factors → seed anchor table (hand-curated, 1/10-scaled
         from a reference industrial, anonymized) → per-source file generators
-        (Ariba CSVs, Fusion CSV/Parquet, CMS JSON) → reconciliation gate.
-        Reconciliation fails the job if quarterly aggregates drift more than
-        ±2% from _meta.dim_period_anchors.
+        (Ariba CSVs, Fusion CSV/Parquet) → reconciliation gate. Reconciliation
+        fails the job if quarterly spend aggregates drift more than ±2% from
+        the period anchors.
       max_concurrent_runs: 1
       email_notifications: {}
       environments:
@@ -17,7 +18,7 @@ resources:
           spec:
             client: "2"
             dependencies:
-              - --requirement /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}/files/requirements.txt                              
+              - --requirement /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}/files/requirements.txt
       tasks:
         - task_key: generate_macro_environment
           environment_key: default
@@ -26,7 +27,7 @@ resources:
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
-              schema_gold: ${var.schema_gold}
+              schema: ${var.schema}
 
         - task_key: seed_period_anchors
           environment_key: default
@@ -37,8 +38,7 @@ resources:
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
-              schema_meta: ${var.schema_meta}
-              schema_ml: ${var.schema_ml}
+              schema: ${var.schema}
 
         - task_key: generate_ariba_files
           environment_key: default
@@ -49,49 +49,20 @@ resources:
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
-              schema_raw: ${var.schema_raw}
-              schema_meta: ${var.schema_meta}
+              schema: ${var.schema}
               raw_volume: ${var.raw_volume}
 
         - task_key: generate_fusion_files
           environment_key: default
           depends_on:
             - task_key: seed_period_anchors
-            - task_key: generate_ariba_files   # Fusion now reads Ariba PRs to seed POs
+            - task_key: generate_ariba_files   # Fusion reads Ariba PRs to seed POs
           notebook_task:
             notebook_path: ../data/generators/03_fusion_files.py
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
-              schema_raw: ${var.schema_raw}
-              schema_meta: ${var.schema_meta}
-              schema_gold: ${var.schema_gold}
-              raw_volume: ${var.raw_volume}
-
-        - task_key: generate_cms_files
-          environment_key: default
-          depends_on:
-            - task_key: seed_period_anchors
-          notebook_task:
-            notebook_path: ../data/generators/04_cms_files.py
-            source: WORKSPACE
-            base_parameters:
-              catalog: ${var.catalog}
-              schema_raw: ${var.schema_raw}
-              schema_meta: ${var.schema_meta}
-              raw_volume: ${var.raw_volume}
-
-        - task_key: generate_workday_workers
-          environment_key: default
-          depends_on:
-            - task_key: seed_period_anchors
-          notebook_task:
-            notebook_path: ../data/generators/05_workday_workers.py
-            source: WORKSPACE
-            base_parameters:
-              catalog: ${var.catalog}
-              schema_raw: ${var.schema_raw}
-              schema_meta: ${var.schema_meta}
+              schema: ${var.schema}
               raw_volume: ${var.raw_volume}
 
         - task_key: reconcile_tie_out
@@ -99,15 +70,12 @@ resources:
           depends_on:
             - task_key: generate_ariba_files
             - task_key: generate_fusion_files
-            - task_key: generate_cms_files
-            - task_key: generate_workday_workers
           notebook_task:
             notebook_path: ../data/generators/99_reconcile.py
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
-              schema_raw: ${var.schema_raw}
-              schema_meta: ${var.schema_meta}
+              schema: ${var.schema}
               raw_volume: ${var.raw_volume}
               tolerance_pct: "2.0"
 

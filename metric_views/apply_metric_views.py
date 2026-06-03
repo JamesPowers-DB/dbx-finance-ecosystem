@@ -38,28 +38,28 @@
 # Requires DBR 17.2+ (serverless tracks latest). Idempotent (CREATE OR REPLACE).
 # ============================================================================
 
-dbutils.widgets.text("catalog", "horizontal_finance_dev")
-dbutils.widgets.text("schema_gold", "gold")
-dbutils.widgets.text("schema_silver", "silver")
+dbutils.widgets.text("catalog", "main")
+dbutils.widgets.text("schema", "finance_spend_analytics")
 
 catalog = dbutils.widgets.get("catalog")
-gold = dbutils.widgets.get("schema_gold")
-silver = dbutils.widgets.get("schema_silver")
+schema = dbutils.widgets.get("schema")
 
-fq_gold = f"`{catalog}`.`{gold}`"
+# Single schema; tables are layer-prefixed (gold_ / silver_). Metric views are
+# gold-layer consumption artifacts, so they're created as gold_mv_*.
+fq = f"`{catalog}`.`{schema}`"
 
 # ── Base: gold.mv_spend ──────────────────────────────────────────────────────
 # Straight table source over gold.fact_invoices — the per-line conditions live
 # inline in the measure expressions. Catalog/schema are interpolated so the same
 # definition deploys to dev and prod unchanged.
 mv_spend = f"""
-CREATE OR REPLACE VIEW {fq_gold}.mv_spend
+CREATE OR REPLACE VIEW {fq}.gold_mv_spend
 WITH METRICS
 LANGUAGE YAML
 AS $$
 version: 1.1
 
-source: horizontal_finance_dev.gold.fact_invoices
+source: {catalog}.{schema}.gold_fact_invoices
 
 comment: "Spend semantic + metric layer over gold.fact_invoices (straight table source\
   \ — fact_invoices already carries every column needed, so no source query and no\
@@ -444,13 +444,13 @@ $$
 
 # ── Nested: gold.mv_supplier_performance (source = gold.mv_spend) ─────────────
 mv_supplier_performance = f"""
-CREATE OR REPLACE VIEW {fq_gold}.mv_supplier_performance
+CREATE OR REPLACE VIEW {fq}.gold_mv_supplier_performance
 WITH METRICS
 LANGUAGE YAML
 AS $$
 version: 1.1
 comment: "Parties subject view — supplier performance. Nested on mv_spend so all flag/measure logic is inherited (no duplication). Filter Invoice Date >= date_sub(current_date,365) for the trailing-12-month scorecard."
-source: {catalog}.{gold}.mv_spend
+source: {catalog}.{schema}.gold_mv_spend
 dimensions:
   - name: supplier_id
     display_name: "Supplier Id"
@@ -686,8 +686,9 @@ measures:
     display_name: Over-Utilized Count
     format: {type: number, decimal_places: {type: exact, places: 0}}
 $$'''
-mv_contracts = (_MV_CONTRACTS_SQL.replace("__CAT__", catalog)
-                .replace("__GOLD__", gold).replace("__SILVER__", silver))
+mv_contracts = (_MV_CONTRACTS_SQL
+                .replace("__CAT__.__GOLD__.", f"{catalog}.{schema}.gold_")
+                .replace("__CAT__.__SILVER__.", f"{catalog}.{schema}.silver_"))
 
 # ── Subject view: gold.mv_purchase_orders (request -> order step) ──────────────
 # PO line grain LEFT JOINed to the originating PR (fact_purchase_requests) so
@@ -813,8 +814,8 @@ measures:
     display_name: Avg PO Line Value
     format: {type: currency, currency_code: USD, decimal_places: {type: exact, places: 0}, abbreviation: compact}
 $$'''
-mv_purchase_orders = (_MV_PURCHASE_ORDERS_SQL.replace("__CAT__", catalog)
-                      .replace("__GOLD__", gold))
+mv_purchase_orders = (_MV_PURCHASE_ORDERS_SQL
+                      .replace("__CAT__.__GOLD__.", f"{catalog}.{schema}.gold_"))
 
 # ── Subject view: gold.mv_cost_savings (low priority) ─────────────────────────
 # Auto-detected sourcing savings (baseline back-calculated from event type).
@@ -888,20 +889,20 @@ measures:
     synonyms: ['sourcing events', 'number of events']
     format: {type: number, decimal_places: {type: exact, places: 0}}
 $$'''
-mv_cost_savings = (_MV_COST_SAVINGS_SQL.replace("__CAT__", catalog)
-                   .replace("__GOLD__", gold))
+mv_cost_savings = (_MV_COST_SAVINGS_SQL
+                   .replace("__CAT__.__GOLD__.", f"{catalog}.{schema}.gold_"))
 
-print(f"Applying metric views to {catalog}.{gold} ...")
+print(f"Applying metric views to {catalog}.{schema} ...")
 spark.sql(mv_spend)
-print(f"  ✓ {catalog}.{gold}.mv_spend")
+print(f"  ✓ {catalog}.{schema}.gold_mv_spend")
 spark.sql(mv_supplier_performance)
-print(f"  ✓ {catalog}.{gold}.mv_supplier_performance (nested on mv_spend)")
+print(f"  ✓ {catalog}.{schema}.gold_mv_supplier_performance (nested on gold_mv_spend)")
 spark.sql(mv_contracts)
-print(f"  ✓ {catalog}.{gold}.mv_contracts")
+print(f"  ✓ {catalog}.{schema}.gold_mv_contracts")
 spark.sql(mv_purchase_orders)
-print(f"  ✓ {catalog}.{gold}.mv_purchase_orders (PO line grain + PR join)")
+print(f"  ✓ {catalog}.{schema}.gold_mv_purchase_orders (PO line grain + PR join)")
 spark.sql(mv_cost_savings)
-print(f"  ✓ {catalog}.{gold}.mv_cost_savings")
+print(f"  ✓ {catalog}.{schema}.gold_mv_cost_savings")
 
 # ── Validation — fail the task if the headline KPIs don't compute ────────────
 # Ratio measures are stored as fractions; multiply by 100 here purely for a
@@ -915,7 +916,7 @@ kpi = spark.sql(f"""
       ROUND(MEASURE(sourced_pct) * 100, 1)              AS sourced_pct,
       ROUND(MEASURE(po_coverage_pct) * 100, 1)          AS po_coverage_pct,
       ROUND(MEASURE(on_time_payment_pct) * 100, 1)      AS on_time_pct
-    FROM {catalog}.{gold}.mv_spend
+    FROM {catalog}.{schema}.gold_mv_spend
     WHERE invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
 """).collect()[0]
 print(f"  T12M KPIs → total=${kpi['total_spend_b']}B "

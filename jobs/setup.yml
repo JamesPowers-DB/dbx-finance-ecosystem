@@ -1,7 +1,7 @@
 resources:
   jobs:
     setup:
-      name: finance-demo-setup-${bundle.target}
+      name: finance-spend-analytics-setup-${bundle.target}
       description: >
         One-click post-deploy installer. Runs the whole consumption stack in order:
         generate_data -> build_lakehouse (pipeline) -> apply_metric_views ->

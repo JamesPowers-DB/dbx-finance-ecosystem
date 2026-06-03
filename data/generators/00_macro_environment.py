@@ -15,11 +15,11 @@
 
 # COMMAND ----------
 dbutils.widgets.text("catalog", "")
-dbutils.widgets.text("schema_gold", "")
+dbutils.widgets.text("schema", "")
 
 catalog = get_widget("catalog", "")
-schema_gold = get_widget("schema_gold", "")
-print(f"Writing to {catalog}.{schema_gold}.dim_macro_environment")
+schema = get_widget("schema", "")
+print(f"Writing to {catalog}.{schema}.gold_dim_macro_environment")
 
 # COMMAND ----------
 # MAGIC %md ## Build the monthly time axis
@@ -144,10 +144,10 @@ print(f"... ({len(df)} rows)")
 # MAGIC %md ## Write to UC
 
 # COMMAND ----------
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema_gold}`")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")
 sdf = spark.createDataFrame(df.to_pandas())
 (sdf.write.format("delta")
     .mode("overwrite")
     .option("overwriteSchema", "true")
-    .saveAsTable(f"`{catalog}`.`{schema_gold}`.dim_macro_environment"))
-print(f"Wrote {sdf.count()} rows to {catalog}.{schema_gold}.dim_macro_environment")
+    .saveAsTable(f"`{catalog}`.`{schema}`.gold_dim_macro_environment"))
+print(f"Wrote {sdf.count()} rows to {catalog}.{schema}.gold_dim_macro_environment")

@@ -2,7 +2,7 @@
 -- SILVER — sourcing_event (Ariba RFQ / RFP / Auction)
 -- ============================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_silver}.sourcing_event
+CREATE OR REFRESH MATERIALIZED VIEW ${schema}.silver_sourcing_event
 COMMENT "Conformed sourcing events. Awarded vs market amount feeds the Phase 2 savings-tracking metric."
 AS
 SELECT
@@ -22,4 +22,4 @@ SELECT
   Status                                         AS status,
   YEAR(ClosedOn)                                 AS fiscal_year,
   QUARTER(ClosedOn)                              AS fiscal_quarter
-FROM ${schema_bronze_ariba}.ARIBA_SOURCING_EVENT;
+FROM ${schema}.bronze_ariba_sourcing_event;

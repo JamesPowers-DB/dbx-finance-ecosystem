@@ -10,7 +10,7 @@
 --   pr_status = 'open'      → in-flight at extract time
 -- ============================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_gold}.fact_purchase_requests
+CREATE OR REFRESH MATERIALIZED VIEW ${schema}.gold_fact_purchase_requests
 COMMENT "Purchase Request line fact. Intake-side measurement (volume, cancel rates). PR amounts are estimates; final cost lives on fact_invoices."
 AS
 SELECT
@@ -47,6 +47,6 @@ SELECT
   pr.pr_source,
   pr.contract_id,
   pr.sourcing_event_id
-FROM ${schema_silver}.purchase_request pr
-LEFT JOIN ${schema_gold}.dim_supplier s
+FROM ${schema}.silver_purchase_request pr
+LEFT JOIN ${schema}.gold_dim_supplier s
   ON pr.intended_supplier_id = s.supplier_id;

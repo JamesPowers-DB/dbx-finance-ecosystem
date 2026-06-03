@@ -11,7 +11,7 @@
 -- _true_category_primary + _true_category_secondary (the 2-tier supervised label).
 -- ============================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_silver}.invoice_ap
+CREATE OR REFRESH MATERIALIZED VIEW ${schema}.silver_invoice_ap
 COMMENT "AP invoice LINE grain. Headers joined for payment_terms / due_date / payment_date / payment_status; line carries description, amount, GL coding, and the ML label."
 AS
 SELECT
@@ -66,6 +66,6 @@ SELECT
 
   YEAR(h.invoice_date)                                         AS fiscal_year,
   QUARTER(h.invoice_date)                                      AS fiscal_quarter
-FROM ${schema_bronze_fusion}.ap_invoice_lines_all l
-JOIN ${schema_bronze_fusion}.ap_invoices_all h
+FROM ${schema}.bronze_ap_invoice_lines_all l
+JOIN ${schema}.bronze_ap_invoices_all h
   ON l.invoice_id = h.invoice_id;

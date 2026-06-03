@@ -15,7 +15,7 @@
 -- Lakebase app table `savings_avoidance_entries` and are joined client-side
 -- by the portal's cost-savings router.
 -- ============================================================================
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_gold}.fact_cost_savings 
+CREATE OR REFRESH MATERIALIZED VIEW ${schema}.gold_fact_cost_savings 
 COMMENT "Auto-detected cost reductions from closed sourcing events. Baseline is estimated from event type × awarded amount. Manual avoidance entries are stored in Lakebase and joined in the portal." AS WITH savings_rates AS (
   SELECT event_id,
     event_type,
@@ -38,7 +38,7 @@ COMMENT "Auto-detected cost reductions from closed sourcing events. Baseline is 
       WHEN 'RFP' THEN ROUND(awarded_amount / (1.0 - 0.18), 2)
       ELSE ROUND(awarded_amount / (1.0 - 0.12), 2)
     END AS baseline_amount
-  FROM ${schema_silver}.sourcing_event
+  FROM ${schema}.silver_sourcing_event
   WHERE status = 'Awarded'
     AND awarded_amount IS NOT NULL
     AND awarded_amount > 0
@@ -64,4 +64,4 @@ SELECT CONCAT('SE-', sr.event_id) AS savings_event_id,
   CAST(NULL AS STRING) AS attested_at,
   CAST(NULL AS STRING) AS notes
 FROM savings_rates sr
-  LEFT JOIN ${schema_gold}.dim_supplier s ON sr.supplier_id = s.supplier_id;
+  LEFT JOIN ${schema}.gold_dim_supplier s ON sr.supplier_id = s.supplier_id;

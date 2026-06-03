@@ -11,7 +11,7 @@
 -- MERGEs into it.
 -- ============================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_silver}.invoice_classification
+CREATE OR REFRESH MATERIALIZED VIEW ${schema}.silver_invoice_classification
 COMMENT "ML inference output for invoice lines. Populated by batch_inference.py; LEFT-joined to fact_invoices. Empty when inference hasn't run. 2-tier schema: primary (parent) + secondary (leaf) with per-tier confidences."
 AS
 SELECT
@@ -22,4 +22,4 @@ SELECT
   CAST(secondary_confidence AS DOUBLE)         AS secondary_confidence,
   model_version,
   CAST(scored_at AS TIMESTAMP)                 AS scored_at
-FROM ${catalog}.${schema_ml}.invoice_classifications;
+FROM ${catalog}.${schema}.ml_invoice_classifications;

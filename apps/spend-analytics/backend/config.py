@@ -13,11 +13,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # Unity Catalog
-    catalog: str = Field(default="horizontal_finance_dev", validation_alias="DATABRICKS_CATALOG")
-    silver_schema: str = Field(default="silver", validation_alias="DATABRICKS_SILVER_SCHEMA")
-    gold_schema: str = Field(default="gold", validation_alias="DATABRICKS_GOLD_SCHEMA")
-    ml_schema: str = Field(default="ml", validation_alias="DATABRICKS_ML_SCHEMA")
+    # Unity Catalog. Single schema holds every layer; tables are layer-prefixed
+    # (gold_ / silver_ / ml_). The gold/silver/ml properties below all resolve to
+    # the same catalog.schema — the prefix lives on the table name at the call site.
+    catalog: str = Field(default="main", validation_alias="DATABRICKS_CATALOG")
+    schema: str = Field(default="finance_spend_analytics", validation_alias="DATABRICKS_SCHEMA")
 
     # SQL warehouse (OBO target) — resource binding sets this from app.yaml
     warehouse_id: str = Field(default="", validation_alias="DATABRICKS_WAREHOUSE_ID")
@@ -65,17 +65,19 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    # All three resolve to catalog.schema; the layer is carried by the table-name
+    # prefix at the query site (e.g. {s.gold}.gold_fact_invoices).
     @property
     def gold(self) -> str:
-        return f"{self.catalog}.{self.gold_schema}"
+        return f"{self.catalog}.{self.schema}"
 
     @property
     def silver(self) -> str:
-        return f"{self.catalog}.{self.silver_schema}"
+        return f"{self.catalog}.{self.schema}"
 
     @property
     def ml(self) -> str:
-        return f"{self.catalog}.{self.ml_schema}"
+        return f"{self.catalog}.{self.schema}"
 
 
 @lru_cache

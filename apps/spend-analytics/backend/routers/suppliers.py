@@ -41,7 +41,7 @@ def _mvsp_inner_sql(s) -> str:
             ROUND(MEASURE(avg_dpo), 1)                    AS avg_dpo,
             ROUND(MEASURE(measured_maverick_pct) * 100, 1) AS measured_maverick_pct,
             ROUND(MEASURE(managed_spend_pct) * 100, 1)    AS managed_spend_pct
-        FROM {s.gold}.mv_supplier_performance
+        FROM {s.gold}.gold_mv_supplier_performance
         WHERE invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
         GROUP BY ALL
     """
@@ -118,7 +118,7 @@ def supplier_scorecard(
         caller,
         f"""
         SELECT category_primary AS category, ROUND(MEASURE(total_spend), 2) AS spend_usd
-        FROM {s.gold}.mv_spend
+        FROM {s.gold}.gold_mv_spend
         WHERE supplier_id = ?
           AND invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
         GROUP BY ALL
@@ -139,7 +139,7 @@ def supplier_scorecard(
                    ELSE NULL
                END AS pct_consumed,
                DATEDIFF(expiration_date, CURRENT_DATE()) AS days_to_expiration
-        FROM {s.silver}.contract_inbound
+        FROM {s.silver}.silver_contract_inbound
         WHERE supplier_id = ?
           AND contract_type IN ('Statement of Work', 'Framework')
           AND status = 'Active'
@@ -158,7 +158,7 @@ def supplier_scorecard(
         f"""
         WITH q AS (
             SELECT fiscal_year, fiscal_quarter, ROUND(MEASURE(total_spend), 2) AS spend_usd
-            FROM {s.gold}.mv_spend
+            FROM {s.gold}.gold_mv_spend
             WHERE supplier_id = ?
             GROUP BY ALL
             ORDER BY fiscal_year DESC, fiscal_quarter DESC
@@ -181,9 +181,9 @@ def supplier_scorecard(
             d.country_code, d.region, d.created_date, d.category_primary,
             d.segment_affinity, d.payment_terms, d.is_regulated_supplier,
             d.entity_resolution_cluster_id,
-            (SELECT COUNT(*) FROM {s.gold}.dim_supplier x
+            (SELECT COUNT(*) FROM {s.gold}.gold_dim_supplier x
              WHERE x.entity_resolution_cluster_id = d.entity_resolution_cluster_id) AS aliases_resolved
-        FROM {s.gold}.dim_supplier d
+        FROM {s.gold}.gold_dim_supplier d
         WHERE d.supplier_id = ?
         """,
         [supplier_id],
@@ -199,7 +199,7 @@ def supplier_scorecard(
             ROUND(MEASURE(addressable_spend), 2) AS addressable_spend,
             ROUND(MEASURE(managed_spend), 2)     AS managed_spend,
             ROUND(MEASURE(unmanaged_spend), 2)   AS unmanaged_spend
-        FROM {s.gold}.mv_spend
+        FROM {s.gold}.gold_mv_spend
         WHERE supplier_id = ?
           AND invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
         GROUP BY ALL
@@ -218,7 +218,7 @@ def supplier_scorecard(
             ROUND(SUM(amount), 2)             AS spend_usd,
             COUNT(*)                          AS lines,
             ROUND(AVG(primary_confidence), 3) AS avg_confidence
-        FROM {s.gold}.fact_invoices
+        FROM {s.gold}.gold_fact_invoices
         WHERE supplier_id = ?
           AND payment_status = 'PAID'
           AND invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
@@ -237,7 +237,7 @@ def supplier_scorecard(
             ROUND(100.0 * COUNT(predicted_primary_category) / NULLIF(COUNT(*), 0), 1) AS classified_pct,
             ROUND(100.0 * SUM(CASE WHEN predicted_primary_category = true_category_primary THEN 1 ELSE 0 END)
                   / NULLIF(COUNT(predicted_primary_category), 0), 1) AS agreement_pct
-        FROM {s.gold}.fact_invoices
+        FROM {s.gold}.gold_fact_invoices
         WHERE supplier_id = ?
           AND payment_status = 'PAID'
           AND invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
@@ -258,7 +258,7 @@ def supplier_scorecard(
             MAX(true_category_primary)     AS category,
             MAX(CASE WHEN contract_id IS NOT NULL OR sourcing_event_id IS NOT NULL
                      THEN 1 ELSE 0 END)    AS on_contract
-        FROM {s.gold}.fact_purchase_orders
+        FROM {s.gold}.gold_fact_purchase_orders
         WHERE supplier_id = ?
           AND po_created_date >= DATE_SUB(CURRENT_DATE(), 365)
         GROUP BY po_number

@@ -11,13 +11,13 @@
 # ============================================================================
 
 # COMMAND ----------
-dbutils.widgets.text("catalog", "horizontal_finance_dev")
-dbutils.widgets.text("schema_gold", "gold")
+dbutils.widgets.text("catalog", "main")
+dbutils.widgets.text("schema", "finance_spend_analytics")
 dbutils.widgets.text("warehouse_id", "")
-dbutils.widgets.text("target", "dev")
+dbutils.widgets.text("target", "prod")
 
 catalog = dbutils.widgets.get("catalog")
-schema_gold = dbutils.widgets.get("schema_gold")
+schema = dbutils.widgets.get("schema")
 warehouse_id = dbutils.widgets.get("warehouse_id")
 target = dbutils.widgets.get("target")
 
@@ -32,8 +32,8 @@ from databricks.sdk import WorkspaceClient
 w = WorkspaceClient()
 
 title = space_title(target)
-serialized = json.dumps(build_serialized_space(catalog, schema_gold))
-print(f"Provisioning Genie space '{title}' over {catalog}.{schema_gold} metric views ...")
+serialized = json.dumps(build_serialized_space(catalog, schema))
+print(f"Provisioning Genie space '{title}' over {catalog}.{schema} metric views ...")
 
 # COMMAND ----------
 # Find an existing space with this exact title (idempotent by name).

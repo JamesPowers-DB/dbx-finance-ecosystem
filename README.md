@@ -107,8 +107,7 @@ Bundle variables (`databricks.yml`), overridable with `--var name=value`:
 | `schema_gold` / `schema_silver` / `schema_ml` / … | `gold` / `silver` / `ml` / … | Schema names |
 
 App runtime config lives in `apps/spend-analytics/app.yaml`. The Genie space is resolved
-by `GENIE_SPACE_TITLE` (defaults to `Strategic Spend Analytics (dev)`; set to `(prod)` for a
-prod app). Set `GENIE_SPACE_ID` to pin a specific space instead.
+by `GENIE_SPACE_TITLE` (defaults to `Financial Spend Analytics - Strategic Sourcing`; Set `GENIE_SPACE_ID` to pin a specific space instead.
 
 > **Lakebase note:** the chatbot's conversation history and the manual savings ledger
 > persist in Lakebase Postgres. That instance is **not** created by this bundle and is

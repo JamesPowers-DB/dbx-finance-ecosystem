@@ -15,21 +15,21 @@
 
 # COMMAND ----------
 dbutils.widgets.text("catalog", "")
-dbutils.widgets.text("schema_ml", "")
+dbutils.widgets.text("schema", "finance_spend_analytics")
 dbutils.widgets.text("model_name", "spend_classifier")
 dbutils.widgets.text("model_alias", "challenger_embedding")
 dbutils.widgets.text("embedding_endpoint", "databricks-bge-large-en")
 dbutils.widgets.text("batch_size", "1000")
 
 catalog = dbutils.widgets.get("catalog")
-schema_ml = dbutils.widgets.get("schema_ml")
+schema = dbutils.widgets.get("schema")
 model_name = dbutils.widgets.get("model_name")
 model_alias = dbutils.widgets.get("model_alias")
 embedding_endpoint = dbutils.widgets.get("embedding_endpoint")
 batch_size = int(dbutils.widgets.get("batch_size"))
 
 print(f"Embedding endpoint: {embedding_endpoint}")
-print(f"Target model: {catalog}.{schema_ml}.{model_name}@{model_alias}")
+print(f"Target model: {catalog}.{schema}.{model_name}@{model_alias}")
 
 # COMMAND ----------
 # MAGIC %md ## Step 1 — Embed `line_description` (with cache)
@@ -43,11 +43,11 @@ print(f"Target model: {catalog}.{schema_ml}.{model_name}@{model_alias}")
 #     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 #
 # # Pull descriptions, dedup, check cache, embed only the new ones.
-# train = spark.table(f"{catalog}.{schema_ml}.spend_clf_train")
+# train = spark.table(f"{catalog}.{schema}.ml_spend_clf_train")
 # unique_desc = (train.select("line_description").distinct()
 #                     .withColumn("desc_hash", F.udf(sha)("line_description")))
 #
-# cache_table = f"{catalog}.{schema_ml}.spend_clf_embeddings_cache"
+# cache_table = f"{catalog}.{schema}.ml_spend_clf_embeddings_cache"
 # # ... check existence, diff cached vs needed, embed in batches via get_deploy_client().predict()
 
 print("TODO: embed line_description and cache")

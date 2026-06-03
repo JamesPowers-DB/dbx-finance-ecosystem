@@ -19,13 +19,11 @@
 
 # COMMAND ----------
 dbutils.widgets.text("catalog", "")
-dbutils.widgets.text("schema_meta", "")
-dbutils.widgets.text("schema_ml", "")
+dbutils.widgets.text("schema", "")
 
 catalog = get_widget("catalog", "")
-schema_meta = get_widget("schema_meta", "")
-schema_ml = get_widget("schema_ml", "")
-print(f"Seeding {catalog}.{schema_meta}.dim_period_anchors")
+schema = get_widget("schema", "")
+print(f"Seeding {catalog}.{schema}.meta_dim_period_anchors")
 
 # COMMAND ----------
 # MAGIC %md ## Anchor values
@@ -148,14 +146,14 @@ print(f"{len(df)} rows: {df['period_type'].value_counts()}")
 # MAGIC %md ## Write to UC (overwrite, idempotent seed)
 
 # COMMAND ----------
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema_meta}`")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")
 
 sdf = spark.createDataFrame(df.to_pandas())
 (sdf.write.format("delta")
     .mode("overwrite")
     .option("overwriteSchema", "true")
-    .saveAsTable(f"`{catalog}`.`{schema_meta}`.dim_period_anchors"))
-print(f"Seeded {sdf.count()} rows into {catalog}.{schema_meta}.dim_period_anchors")
+    .saveAsTable(f"`{catalog}`.`{schema}`.meta_dim_period_anchors"))
+print(f"Seeded {sdf.count()} rows into {catalog}.{schema}.meta_dim_period_anchors")
 
 # COMMAND ----------
 # MAGIC %md ## Initialize ml.invoice_classifications (empty until batch inference runs)
@@ -166,22 +164,19 @@ print(f"Seeded {sdf.count()} rows into {catalog}.{schema_meta}.dim_period_anchor
 # MAGIC to run before the model has ever scored anything.
 
 # COMMAND ----------
-if schema_ml:
-    spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema_ml}`")
-    # CREATE OR REPLACE so the schema evolves cleanly between demo iterations.
-    # The table is the *inference output*; truncating between data-gen runs is
-    # the right behavior (stale predictions tied to old data shouldn't linger).
-    spark.sql(f"""
-        CREATE OR REPLACE TABLE `{catalog}`.`{schema_ml}`.invoice_classifications (
-            invoice_line_id BIGINT,
-            predicted_primary_category STRING,
-            predicted_secondary_category STRING,
-            primary_confidence DOUBLE,
-            secondary_confidence DOUBLE,
-            model_version STRING,
-            scored_at TIMESTAMP
-        ) USING DELTA
-    """)
-    print(f"Created/refreshed {catalog}.{schema_ml}.invoice_classifications (2-tier schema, empty)")
-else:
-    print("schema_ml widget not set — skipping ml.invoice_classifications init")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")
+# CREATE OR REPLACE so the schema evolves cleanly between demo iterations.
+# The table is the *inference output*; truncating between data-gen runs is
+# the right behavior (stale predictions tied to old data shouldn't linger).
+spark.sql(f"""
+    CREATE OR REPLACE TABLE `{catalog}`.`{schema}`.ml_invoice_classifications (
+        invoice_line_id BIGINT,
+        predicted_primary_category STRING,
+        predicted_secondary_category STRING,
+        primary_confidence DOUBLE,
+        secondary_confidence DOUBLE,
+        model_version STRING,
+        scored_at TIMESTAMP
+    ) USING DELTA
+""")
+print(f"Created/refreshed {catalog}.{schema}.ml_invoice_classifications (2-tier schema, empty)")

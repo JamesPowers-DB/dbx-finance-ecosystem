@@ -11,8 +11,7 @@
 
 # COMMAND ----------
 dbutils.widgets.text("catalog", "")
-dbutils.widgets.text("schema_gold", "")
-dbutils.widgets.text("schema_meta", "")
+dbutils.widgets.text("schema", "finance_spend_analytics")
 dbutils.widgets.text("tolerance_pct", "2.0")
 
 print("TODO: assert gold tables tie to anchors")

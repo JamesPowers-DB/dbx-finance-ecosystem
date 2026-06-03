@@ -289,8 +289,8 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                     MAX(fi.true_category_primary)      AS category,
                     ROUND(SUM(fi.amount), 2)           AS category_spend_usd,
                     COUNT(*)                           AS line_count
-                FROM {s.gold}.fact_invoices fi
-                JOIN {s.gold}.dim_supplier ds ON fi.supplier_id = ds.supplier_id
+                FROM {s.gold}.gold_fact_invoices fi
+                JOIN {s.gold}.gold_dim_supplier ds ON fi.supplier_id = ds.supplier_id
                 WHERE fi.payment_status = 'PAID'
                   AND COALESCE(ds.is_regulated_supplier, FALSE) = FALSE
                   AND (LOWER(fi.true_category_primary) LIKE ? OR LOWER(fi.true_category_secondary) LIKE ?)
@@ -321,8 +321,8 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                     caller,
                     f"""
                     SELECT fi.supplier_id
-                    FROM {s.gold}.fact_invoices fi
-                    JOIN {s.gold}.dim_supplier ds ON fi.supplier_id = ds.supplier_id
+                    FROM {s.gold}.gold_fact_invoices fi
+                    JOIN {s.gold}.gold_dim_supplier ds ON fi.supplier_id = ds.supplier_id
                     WHERE LOWER(ds.supplier_name) LIKE ? AND fi.payment_status = 'PAID'
                     GROUP BY fi.supplier_id
                     ORDER BY SUM(fi.amount) DESC
@@ -341,7 +341,7 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                 f"""
                 SELECT supplier_name, region, payment_terms,
                        is_regulated_supplier AS is_regulated
-                FROM {s.gold}.dim_supplier WHERE supplier_id = ?
+                FROM {s.gold}.gold_dim_supplier WHERE supplier_id = ?
                 """,
                 [supplier_id],
             ) or {}
@@ -353,7 +353,7 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                        ROUND(MEASURE(avg_dpo), 1)                      AS avg_dpo,
                        ROUND(MEASURE(measured_maverick_pct) * 100, 1)  AS maverick_pct,
                        ROUND(MEASURE(managed_spend_pct) * 100, 1)      AS managed_pct
-                FROM {s.gold}.mv_supplier_performance
+                FROM {s.gold}.gold_mv_supplier_performance
                 WHERE supplier_id = ? AND invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
                 GROUP BY ALL
                 """,
@@ -364,7 +364,7 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                 caller,
                 f"""
                 SELECT true_category_primary AS category, ROUND(SUM(amount), 2) AS spend_usd
-                FROM {s.gold}.fact_invoices
+                FROM {s.gold}.gold_fact_invoices
                 WHERE supplier_id = ? AND payment_status = 'PAID'
                   AND invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
                 GROUP BY true_category_primary ORDER BY spend_usd DESC LIMIT 3
@@ -375,7 +375,7 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                 caller,
                 f"""
                 SELECT COUNT(*) AS active_contracts
-                FROM {s.silver}.contract_inbound
+                FROM {s.silver}.silver_contract_inbound
                 WHERE supplier_id = ? AND status = 'Active'
                   AND contract_type IN ('Statement of Work', 'Framework')
                   AND effective_date <= CURRENT_DATE() AND expiration_date >= CURRENT_DATE()
@@ -397,7 +397,7 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                 SELECT contract_workspace_id, contract_type, title,
                        effective_date, expiration_date, total_committed_spend,
                        actual_spend_to_date, status
-                FROM {s.silver}.contract_inbound
+                FROM {s.silver}.silver_contract_inbound
                 WHERE supplier_id = ?
                   AND contract_type IN ('Statement of Work', 'Framework')
                   AND status = 'Active'
@@ -423,7 +423,7 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                            AS qty_weighted_unit_price,
                        SUM(quantity)                              AS total_quantity,
                        COUNT(*)                                   AS line_count
-                FROM {s.gold}.fact_invoices
+                FROM {s.gold}.gold_fact_invoices
                 WHERE supplier_id = ?
                   AND true_category_secondary LIKE ?
                   AND payment_status = 'PAID'
@@ -450,7 +450,7 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                        ROUND(total_committed_spend, 0) AS committed_usd,
                        ROUND(100.0 * actual_spend_to_date / NULLIF(total_committed_spend, 0), 1)
                            AS pct_consumed
-                FROM {s.silver}.contract_inbound
+                FROM {s.silver}.silver_contract_inbound
                 WHERE contract_type IN ('Statement of Work', 'Framework')
                   AND status = 'Active'
                   AND expiration_date BETWEEN CURRENT_DATE() AND DATE_ADD(CURRENT_DATE(), ?)
@@ -476,7 +476,7 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                     caller,
                     f"""
                     SELECT fiscal_year, fiscal_quarter
-                    FROM {s.gold}.fact_cost_savings
+                    FROM {s.gold}.gold_fact_cost_savings
                     ORDER BY fiscal_year DESC, fiscal_quarter DESC
                     LIMIT 1
                     """,
@@ -489,7 +489,7 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                 SELECT ROUND(SUM(savings_amount_usd), 2) AS total_savings_usd,
                        COUNT(*) AS event_count,
                        ROUND(AVG(savings_rate) * 100, 1) AS avg_savings_rate_pct
-                FROM {s.gold}.fact_cost_savings
+                FROM {s.gold}.gold_fact_cost_savings
                 WHERE fiscal_year = ? AND fiscal_quarter = ?
                 """,
                 [fy, fq],
@@ -499,7 +499,7 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                 f"""
                 SELECT category_primary,
                        ROUND(SUM(savings_amount_usd), 2) AS savings_usd
-                FROM {s.gold}.fact_cost_savings
+                FROM {s.gold}.gold_fact_cost_savings
                 WHERE fiscal_year = ? AND fiscal_quarter = ?
                 GROUP BY category_primary
                 ORDER BY savings_usd DESC
@@ -532,7 +532,7 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
             # Guardrail: regulated supplier → Compliance/Sourcing.
             supplier = fetch_one(
                 caller,
-                f"SELECT is_regulated_supplier FROM {s.gold}.dim_supplier WHERE supplier_id = ?",
+                f"SELECT is_regulated_supplier FROM {s.gold}.gold_dim_supplier WHERE supplier_id = ?",
                 [supplier_id],
             )
             if supplier and supplier.get("is_regulated_supplier"):

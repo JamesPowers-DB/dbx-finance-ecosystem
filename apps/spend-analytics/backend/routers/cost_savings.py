@@ -154,7 +154,7 @@ async def _ensure_seeded(caller: CallerIdentity) -> None:
                    ROUND(awarded_amount, 2)     AS awarded_amount,
                    ROUND(savings_amount_usd, 2) AS savings_amount_usd,
                    event_type
-            FROM {s.gold}.fact_cost_savings
+            FROM {s.gold}.gold_fact_cost_savings
             ORDER BY savings_amount_usd DESC
             LIMIT 24
             """,
@@ -167,8 +167,8 @@ async def _ensure_seeded(caller: CallerIdentity) -> None:
                    YEAR(c.effective_date)    AS fy,
                    QUARTER(c.effective_date) AS fq,
                    ROUND(c.total_committed_spend, 2) AS committed
-            FROM {s.silver}.contract_inbound c
-            LEFT JOIN {s.gold}.dim_supplier sup ON c.supplier_id = sup.supplier_id
+            FROM {s.silver}.silver_contract_inbound c
+            LEFT JOIN {s.gold}.gold_dim_supplier sup ON c.supplier_id = sup.supplier_id
             WHERE c.contract_type IN ('Statement of Work', 'Framework')
               AND c.status = 'Active'
               AND c.effective_date <= CURRENT_DATE()
@@ -255,7 +255,7 @@ async def kpis(caller: CallerIdentity = Depends(caller_identity)) -> dict:
         caller,
         f"""
         SELECT ROUND(MEASURE(addressable_spend), 2) AS addr
-        FROM {s.gold}.mv_spend
+        FROM {s.gold}.gold_mv_spend
         WHERE invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
         GROUP BY ALL
         """,
@@ -294,7 +294,7 @@ def search_artifacts(
                    MAX(fiscal_year) AS fiscal_year, MAX(fiscal_quarter) AS fiscal_quarter,
                    ROUND(MAX(baseline_amount), 2) AS baseline_amount,
                    ROUND(MAX(awarded_amount), 2)  AS realized_amount
-            FROM {s.gold}.fact_cost_savings
+            FROM {s.gold}.gold_fact_cost_savings
             WHERE LOWER(event_title) LIKE ? OR LOWER(supplier_name) LIKE ?
             GROUP BY source_id
             ORDER BY 3
@@ -313,8 +313,8 @@ def search_artifacts(
                    YEAR(c.effective_date) AS fiscal_year, QUARTER(c.effective_date) AS fiscal_quarter,
                    ROUND(c.total_committed_spend, 2) AS baseline_amount,
                    CAST(NULL AS DOUBLE) AS realized_amount
-            FROM {s.silver}.contract_inbound c
-            LEFT JOIN {s.gold}.dim_supplier sup ON c.supplier_id = sup.supplier_id
+            FROM {s.silver}.silver_contract_inbound c
+            LEFT JOIN {s.gold}.gold_dim_supplier sup ON c.supplier_id = sup.supplier_id
             WHERE c.contract_type IN ('Statement of Work', 'Framework')
               AND c.status = 'Active'
               AND c.effective_date <= CURRENT_DATE()

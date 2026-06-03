@@ -1,7 +1,7 @@
 resources:
   jobs:
     provision_genie:
-      name: finance-demo-provision-genie-${bundle.target}
+      name: finance-spend-analytics-provision-genie-${bundle.target}
       description: >
         Create/refresh the Strategic Spend Analytics Genie space, idempotently by
         TITLE ("Strategic Spend Analytics (${bundle.target})"). The app resolves
@@ -21,7 +21,7 @@ resources:
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
-              schema_gold: ${var.schema_gold}
+              schema: ${var.schema}
               warehouse_id: ${var.warehouse_id}
               target: ${bundle.target}
       queue:

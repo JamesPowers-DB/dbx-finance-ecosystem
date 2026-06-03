@@ -6,7 +6,7 @@
 # MAGIC events, contracts, **purchase requests**, and supplier scorecards live here.
 # MAGIC POs and invoices live in Fusion (see `03_fusion_files.py`).
 # MAGIC
-# MAGIC Outputs (CSV) under `/Volumes/${catalog}/${schema_raw}/${raw_volume}/sap_ariba/`:
+# MAGIC Outputs (CSV) under `/Volumes/${catalog}/${schema}/${raw_volume}/sap_ariba/`:
 # MAGIC
 # MAGIC **One file each (stable across regenerations):**
 # MAGIC - `LFA1_SUPPLIER_MASTER.csv` — ~3,000 suppliers. Now carries
@@ -30,22 +30,20 @@
 
 # COMMAND ----------
 dbutils.widgets.text("catalog", "")
-dbutils.widgets.text("schema_raw", "")
-dbutils.widgets.text("schema_meta", "")
+dbutils.widgets.text("schema", "")
 dbutils.widgets.text("raw_volume", "")
 dbutils.widgets.text("target_fiscal_year", "")
 dbutils.widgets.text("target_fiscal_quarter", "")
 
 catalog = get_widget("catalog", "")
-schema_raw = get_widget("schema_raw", "")
-schema_meta = get_widget("schema_meta", "")
+schema = get_widget("schema", "")
 raw_volume = get_widget("raw_volume", "")
 target = get_target_quarter()
 
-assert catalog and schema_raw and schema_meta and raw_volume, "catalog/schema_raw/schema_meta/raw_volume required"
+assert catalog and schema and raw_volume, "catalog/schema/raw_volume required"
 
-ensure_volume(spark, catalog, schema_raw, raw_volume)
-OUT = volume_dir(catalog, schema_raw, raw_volume, "sap_ariba")
+ensure_volume(spark, catalog, schema, raw_volume)
+OUT = volume_dir(catalog, schema, raw_volume, "sap_ariba")
 ensure_dir(OUT)
 print(f"Output dir: {OUT}")
 print(f"Target quarter: {target if target else 'ALL'}")
@@ -54,8 +52,8 @@ print(f"Target quarter: {target if target else 'ALL'}")
 # MAGIC %md ## Read anchors + macro
 
 # COMMAND ----------
-anchors = read_anchors(spark, catalog, schema_meta)
-macro = read_macro(spark, catalog, "gold")
+anchors = read_anchors(spark, catalog, schema)
+macro = read_macro(spark, catalog, schema)
 periods = quarters_to_generate(anchors, target)
 print(f"Generating {len(periods)} quarter(s): {periods}")
 

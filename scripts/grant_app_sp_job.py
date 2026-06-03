@@ -13,15 +13,13 @@
 # ============================================================================
 
 # COMMAND ----------
-dbutils.widgets.text("catalog", "horizontal_finance_dev")
-dbutils.widgets.text("schema_gold", "gold")
-dbutils.widgets.text("schema_silver", "silver")
-dbutils.widgets.text("schema_ml", "ml")
-dbutils.widgets.text("app_name", "spend-analytics-dev")
-dbutils.widgets.text("target", "dev")
+dbutils.widgets.text("catalog", "main")
+dbutils.widgets.text("schema", "finance_spend_analytics")
+dbutils.widgets.text("app_name", "spend-analytics-prod")
+dbutils.widgets.text("target", "prod")
 
 catalog = dbutils.widgets.get("catalog")
-schemas = [dbutils.widgets.get(k) for k in ("schema_gold", "schema_silver", "schema_ml")]
+schemas = [dbutils.widgets.get("schema")]  # single schema holds every layer
 app_name = dbutils.widgets.get("app_name")
 target = dbutils.widgets.get("target")
 

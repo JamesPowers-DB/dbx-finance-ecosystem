@@ -16,7 +16,7 @@
 --     from the leaf-level argmax.
 -- ============================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_gold}.dim_spend_category
+CREATE OR REFRESH MATERIALIZED VIEW ${schema}.gold_dim_spend_category
 COMMENT "2-tier spend taxonomy — 8 parents × 30 leaves. Source of truth for predicted_primary_category derivation and for the demo's supervised label set."
 AS
 SELECT

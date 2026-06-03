@@ -6,7 +6,7 @@
       "queryLines": [
         "WITH base AS (\n",
         "  SELECT supplier_name, MEASURE(total_spend) AS spend\n",
-        "  FROM mv_spend\n",
+        "  FROM gold_mv_spend\n",
         "  GROUP BY supplier_name\n",
         "),\n",
         "ranked AS (\n",
@@ -28,8 +28,8 @@
     },
     {
       "name": "81e581c7",
-      "displayName": "mv_spend",
-      "asset_name": "mv_spend"
+      "displayName": "gold_mv_spend",
+      "asset_name": "gold_mv_spend"
     }
   ],
   "pages": [
@@ -65,8 +65,8 @@
           "position": {
             "x": 0,
             "y": 1,
-            "width": 12,
-            "height": 1
+            "width": 6,
+            "height": 2
           }
         },
         {
@@ -117,7 +117,7 @@
           },
           "position": {
             "x": 0,
-            "y": 2,
+            "y": 3,
             "width": 2,
             "height": 3
           }
@@ -187,7 +187,7 @@
           },
           "position": {
             "x": 4,
-            "y": 2,
+            "y": 3,
             "width": 2,
             "height": 3
           }
@@ -240,7 +240,7 @@
           },
           "position": {
             "x": 8,
-            "y": 2,
+            "y": 3,
             "width": 2,
             "height": 3
           }
@@ -293,7 +293,7 @@
           },
           "position": {
             "x": 6,
-            "y": 2,
+            "y": 3,
             "width": 2,
             "height": 3
           }
@@ -346,7 +346,7 @@
           },
           "position": {
             "x": 10,
-            "y": 2,
+            "y": 3,
             "width": 2,
             "height": 3
           }
@@ -399,7 +399,7 @@
           },
           "position": {
             "x": 2,
-            "y": 2,
+            "y": 3,
             "width": 2,
             "height": 3
           }
@@ -415,7 +415,7 @@
           },
           "position": {
             "x": 0,
-            "y": 5,
+            "y": 6,
             "width": 12,
             "height": 1
           }
@@ -561,7 +561,7 @@
           },
           "position": {
             "x": 0,
-            "y": 6,
+            "y": 7,
             "width": 5,
             "height": 6
           }
@@ -577,7 +577,7 @@
           },
           "position": {
             "x": 0,
-            "y": 17,
+            "y": 18,
             "width": 12,
             "height": 1
           }
@@ -598,13 +598,15 @@
                     {
                       "name": "supplier_name",
                       "expression": "`supplier_name`"
-                    },
-                    {
-                      "name": "sum(running_spend)",
-                      "expression": "SUM(`running_spend`)"
                     }
                   ],
-                  "disaggregated": false
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "ASC",
+                      "expression": "SUM(`cumulative_pct`)"
+                    }
+                  ]
                 }
               }
             ],
@@ -686,12 +688,15 @@
                   "scale": {
                     "type": "categorical",
                     "sort": {
-                      "by": "y"
+                      "by": "measure",
+                      "measure": {
+                        "fieldName": "sum(cumulative_pct)"
+                      }
                     }
                   }
                 },
                 "y": {
-                  "fieldName": "sum(running_spend)",
+                  "fieldName": "sum(cumulative_pct)",
                   "scale": {
                     "type": "quantitative"
                   }
@@ -711,7 +716,7 @@
           },
           "position": {
             "x": 0,
-            "y": 21,
+            "y": 22,
             "width": 3,
             "height": 6
           }
@@ -752,11 +757,11 @@
                 "colors": [
                   {
                     "themeColorType": "visualizationColors",
-                    "position": 1
+                    "position": 16
                   },
                   {
                     "themeColorType": "visualizationColors",
-                    "position": 16
+                    "position": 1
                   },
                   {
                     "themeColorType": "visualizationColors",
@@ -850,7 +855,7 @@
           },
           "position": {
             "x": 3,
-            "y": 18,
+            "y": 19,
             "width": 4,
             "height": 9
           }
@@ -860,15 +865,18 @@
             "name": "hdr_mix",
             "multilineTextboxSpec": {
               "lines": [
-                "## Drivers & Vendor Mix: \n",
+                "## Drivers & Vendor Mix:\n",
                 "\n",
-                "## Channels leak, and the tail to rationalize"
-              ]
+                "## Leaks and Tail Spend\n",
+                "\n",
+                "Understand the white space to target to increase overall Managed Spend"
+              ],
+              "verticalAlign": "VERTICAL_ALIGN_TOP"
             }
           },
           "position": {
             "x": 0,
-            "y": 18,
+            "y": 19,
             "width": 3,
             "height": 3
           }
@@ -884,7 +892,7 @@
           },
           "position": {
             "x": 0,
-            "y": 27,
+            "y": 28,
             "width": 12,
             "height": 1
           }
@@ -1008,7 +1016,7 @@
           },
           "position": {
             "x": 0,
-            "y": 28,
+            "y": 29,
             "width": 12,
             "height": 8
           }
@@ -1188,7 +1196,7 @@
           },
           "position": {
             "x": 5,
-            "y": 6,
+            "y": 7,
             "width": 7,
             "height": 11
           }
@@ -1215,7 +1223,7 @@
           },
           "position": {
             "x": 0,
-            "y": 12,
+            "y": 13,
             "width": 5,
             "height": 5
           }
@@ -1262,11 +1270,11 @@
                 "colors": [
                   {
                     "themeColorType": "visualizationColors",
-                    "position": 1
+                    "position": 16
                   },
                   {
                     "themeColorType": "visualizationColors",
-                    "position": 16
+                    "position": 1
                   },
                   {
                     "themeColorType": "visualizationColors",
@@ -1370,9 +1378,27 @@
           },
           "position": {
             "x": 7,
-            "y": 18,
+            "y": 19,
             "width": 5,
             "height": 9
+          }
+        },
+        {
+          "widget": {
+            "name": "c3c5908e",
+            "multilineTextboxSpec": {
+              "lines": [
+                "Need more answers? Talk to your data using the Genie Space below:\n",
+                "\n",
+                "### [Financial Spend Analytics - Strategic Sourcing]()"
+              ]
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 1,
+            "width": 6,
+            "height": 2
           }
         }
       ],

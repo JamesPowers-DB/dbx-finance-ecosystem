@@ -4,7 +4,7 @@
 -- Conformed PR lines from Ariba EBAN. One row per (PR number × PR line).
 -- ============================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_silver}.purchase_request
+CREATE OR REFRESH MATERIALIZED VIEW ${schema}.silver_purchase_request
 COMMENT "PR line items from Ariba EBAN. Released PRs (status='B') become POs in Fusion; cancelled PRs (status='L') stop here. PR amounts are estimates — final cost lives on the invoice."
 AS
 SELECT
@@ -46,5 +46,5 @@ SELECT
   l._sourcing_event_id                                              AS sourcing_event_id,
   YEAR(h.ERDAT)                                                     AS fiscal_year,
   QUARTER(h.ERDAT)                                                  AS fiscal_quarter
-FROM ${schema_bronze_ariba}.EBAN_PR_LINE l
-JOIN ${schema_bronze_ariba}.EBAN_PR_HEADER h USING (BANFN);
+FROM ${schema}.bronze_eban_pr_line l
+JOIN ${schema}.bronze_eban_pr_header h USING (BANFN);

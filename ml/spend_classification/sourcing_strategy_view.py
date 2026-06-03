@@ -30,14 +30,12 @@
 
 # COMMAND ----------
 dbutils.widgets.text("catalog", "")
-dbutils.widgets.text("schema_gold", "")
-dbutils.widgets.text("schema_silver", "")
+dbutils.widgets.text("schema", "finance_spend_analytics")
 
 catalog = dbutils.widgets.get("catalog")
-schema_gold = dbutils.widgets.get("schema_gold")
-schema_silver = dbutils.widgets.get("schema_silver")
+schema = dbutils.widgets.get("schema")
 
-print(f"Building {catalog}.{schema_gold}.vw_sourcing_strategy")
+print(f"Building {catalog}.{schema}.gold_vw_sourcing_strategy")
 
 # COMMAND ----------
 # MAGIC %md ## The view
@@ -45,7 +43,7 @@ print(f"Building {catalog}.{schema_gold}.vw_sourcing_strategy")
 # COMMAND ----------
 # TODO: implementation
 # spark.sql(f"""
-# CREATE OR REPLACE VIEW `{catalog}`.`{schema_gold}`.vw_sourcing_strategy AS
+# CREATE OR REPLACE VIEW `{catalog}`.`{schema}`.gold_vw_sourcing_strategy AS
 # WITH spend AS (
 #   SELECT
 #     fi.fiscal_year, fi.fiscal_quarter, fi.segment_code,
@@ -58,8 +56,8 @@ print(f"Building {catalog}.{schema_gold}.vw_sourcing_strategy")
 #     fi.direct_indirect,
 #     fi.amount,
 #     ds.category_primary AS supplier_primary_category
-#   FROM `{catalog}`.`{schema_gold}`.fact_invoices fi
-#   LEFT JOIN `{catalog}`.`{schema_gold}`.dim_supplier ds USING (supplier_id)
+#   FROM `{catalog}`.`{schema}`.gold_fact_invoices fi
+#   LEFT JOIN `{catalog}`.`{schema}`.gold_dim_supplier ds USING (supplier_id)
 #   WHERE fi.predicted_secondary_category IS NOT NULL
 #     AND fi.addressability = 'Addressable'   -- exclude regulated suppliers
 # ),
@@ -105,7 +103,7 @@ print(f"Building {catalog}.{schema_gold}.vw_sourcing_strategy")
 #          s.predicted_primary_category, s.predicted_secondary_category,
 #          SUM(CASE WHEN ci.contract_workspace_id IS NULL THEN s.amount ELSE 0 END) AS off_contract_spend
 #   FROM spend s
-#   LEFT JOIN `{catalog}`.`{schema_silver}`.contract_inbound ci
+#   LEFT JOIN `{catalog}`.`{schema}`.silver_contract_inbound ci
 #     ON s.supplier_id = ci.supplier_id
 #    AND ci.status = 'Active'
 #   GROUP BY s.fiscal_year, s.fiscal_quarter, s.segment_code,

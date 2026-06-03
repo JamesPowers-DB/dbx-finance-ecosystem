@@ -23,17 +23,15 @@
 
 # COMMAND ----------
 dbutils.widgets.text("catalog", "")
-dbutils.widgets.text("schema_ml", "")
-dbutils.widgets.text("schema_gold", "gold")
+dbutils.widgets.text("schema", "finance_spend_analytics")
 dbutils.widgets.text("model_name", "spend_classifier")
 
 catalog = dbutils.widgets.get("catalog")
-schema_ml = dbutils.widgets.get("schema_ml")
-schema_gold = dbutils.widgets.get("schema_gold")
+schema = dbutils.widgets.get("schema")
 model_name = dbutils.widgets.get("model_name")
 
-uc_model = f"{catalog}.{schema_ml}.{model_name}"
-eval_runs_fqn = f"`{catalog}`.`{schema_ml}`.spend_clf_eval_runs"
+uc_model = f"{catalog}.{schema}.{model_name}"
+eval_runs_fqn = f"`{catalog}`.`{schema}`.ml_spend_clf_eval_runs"
 print(f"Evaluating aliases of {uc_model}")
 print(f"Eval results table: {eval_runs_fqn}")
 
@@ -55,7 +53,7 @@ FEATURE_COLS = [TEXT_COL] + CAT_COLS + NUM_COLS
 
 
 def load_slice(table_name: str) -> pd.DataFrame:
-    sdf = spark.table(f"`{catalog}`.`{schema_ml}`.{table_name}")
+    sdf = spark.table(f"`{catalog}`.`{schema}`.{table_name}")
     pdf = sdf.toPandas()
     for c in CAT_COLS:
         pdf[c] = pdf[c].fillna("__NA__").astype(str)
@@ -67,13 +65,13 @@ def load_slice(table_name: str) -> pd.DataFrame:
     return pdf
 
 
-holdout_pdf = load_slice("spend_clf_holdout")
-maverick_pdf = load_slice("spend_clf_maverick_holdout")
-train_pdf = load_slice("spend_clf_train")
+holdout_pdf = load_slice("ml_spend_clf_holdout")
+maverick_pdf = load_slice("ml_spend_clf_maverick_holdout")
+train_pdf = load_slice("ml_spend_clf_train")
 print(f"holdout: {len(holdout_pdf):,} | maverick: {len(maverick_pdf):,} | train (for baseline only): {len(train_pdf):,}")
 
 # Leaf → Parent map from the UC taxonomy (matches what the wrapped model learned)
-taxonomy_pdf = (spark.table(f"`{catalog}`.`{schema_gold}`.dim_spend_category")
+taxonomy_pdf = (spark.table(f"`{catalog}`.`{schema}`.gold_dim_spend_category")
                      .select("secondary_code", "primary_code")
                      .toPandas())
 leaf_to_parent = dict(zip(taxonomy_pdf["secondary_code"], taxonomy_pdf["primary_code"]))

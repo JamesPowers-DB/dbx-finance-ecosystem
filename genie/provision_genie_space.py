@@ -49,9 +49,9 @@ def databricks_api(method: str, path: str, *, profile: str, body: dict | None = 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Provision the Strategic Spend Analytics Genie space (CLI).")
     p.add_argument("--profile", default="DEFAULT")
-    p.add_argument("--target", choices=("dev", "prod"), default="dev")
+    p.add_argument("--target", choices=("dev", "prod"), default="prod")
     p.add_argument("--catalog", default=None, help="Defaults to the target's catalog.")
-    p.add_argument("--schema-gold", default="gold")
+    p.add_argument("--schema", default="finance_spend_analytics")
     p.add_argument("--warehouse-id", default="", help="Serving warehouse for the space.")
     p.add_argument("--title", default=None, help="Override the per-target title.")
     p.add_argument("--parent-path", default=None, help="Workspace folder for a NEW space.")
@@ -63,9 +63,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     a = parse_args()
-    catalog = a.catalog or ("horizontal_finance_dev" if a.target == "dev" else "horizontal_finance")
+    catalog = a.catalog or "main"
     title = a.title or space_title(a.target)
-    serialized = build_serialized_space(catalog, a.schema_gold)
+    serialized = build_serialized_space(catalog, a.schema)
     payload = build_outer_payload(title=title, description=DEFAULT_DESCRIPTION,
                                   warehouse_id=a.warehouse_id, serialized_space=serialized,
                                   parent_path=a.parent_path)

@@ -6,7 +6,7 @@
 -- Ariba → Fusion cross-system join.
 -- ============================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_silver}.purchase_order
+CREATE OR REFRESH MATERIALIZED VIEW ${schema}.silver_purchase_order
 COMMENT "PO lines from Fusion po_headers_all + po_lines_all. source_pr_number FKs to silver.purchase_request.pr_number for the Ariba bridge. 2-tier true_category_* labels propagate through from the upstream PR."
 AS
 SELECT
@@ -41,5 +41,5 @@ SELECT
   l._pr_source                                                      AS pr_source,
   l._contract_id                                                    AS contract_id,
   l._sourcing_event_id                                              AS sourcing_event_id
-FROM ${schema_bronze_fusion}.po_lines_all l
-JOIN ${schema_bronze_fusion}.po_headers_all h USING (po_header_id);
+FROM ${schema}.bronze_po_lines_all l
+JOIN ${schema}.bronze_po_headers_all h USING (po_header_id);

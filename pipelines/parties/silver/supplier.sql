@@ -5,7 +5,7 @@
 -- supplier_canonical_id == supplier_id; entity-resolution will populate it.
 -- ============================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_silver}.supplier
+CREATE OR REFRESH MATERIALIZED VIEW ${schema}.silver_supplier
 COMMENT "Conformed supplier master. Reserves supplier_canonical_id for the Phase 2 entity-resolution model."
 AS
 WITH ariba_suppliers AS (
@@ -34,7 +34,7 @@ WITH ariba_suppliers AS (
     _industry_segment_affinity             AS segment_affinity,
     _payment_terms                         AS payment_terms,
     CAST(_is_regulated_flag AS BOOLEAN)    AS is_regulated_supplier
-  FROM ${schema_bronze_ariba}.LFA1_SUPPLIER_MASTER
+  FROM ${schema}.bronze_lfa1_supplier_master
 ),
 fusion_sites AS (
   SELECT
@@ -60,7 +60,7 @@ fusion_sites AS (
     CAST(NULL AS STRING)                                              AS segment_affinity,
     CAST(NULL AS STRING)                                              AS payment_terms,
     CAST(NULL AS BOOLEAN)                                             AS is_regulated_supplier
-  FROM ${schema_bronze_fusion}.ap_supplier_sites_all
+  FROM ${schema}.bronze_ap_supplier_sites_all
   WHERE purchasing_site_flag = 'Y'
 )
 SELECT

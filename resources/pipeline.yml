@@ -1,9 +1,9 @@
 resources:
   pipelines:
     lakehouse:
-      name: finance-demo-lakehouse-${bundle.target}
+      name: finance-spend-analytics-lakehouse-${bundle.target}
       catalog: ${var.catalog}
-      schema: ${var.schema_silver}
+      schema: ${var.schema}
       serverless: true
       continuous: false
       development: false
@@ -11,10 +11,12 @@ resources:
       libraries:
         # ---------------------------------------------------------------- spend
         # Bronze: PR (Ariba) + Sourcing (Ariba) + PO (Fusion) + AP (Fusion)
+        #         + the one GL chart-of-accounts table fact_invoices needs
         - file: { path: ../pipelines/spend/bronze/ariba_purchase_requests.sql }
         - file: { path: ../pipelines/spend/bronze/ariba_sourcing.sql }
         - file: { path: ../pipelines/spend/bronze/fusion_po.sql }
         - file: { path: ../pipelines/spend/bronze/fusion_ap.sql }
+        - file: { path: ../pipelines/spend/bronze/fusion_gl_code_combinations.sql }
         # Silver: PR / PO / invoice_ap (line grain) / sourcing / classification
         - file: { path: ../pipelines/spend/silver/purchase_request.sql }
         - file: { path: ../pipelines/spend/silver/purchase_order.sql }
@@ -27,45 +29,17 @@ resources:
         - file: { path: ../pipelines/spend/gold/fact_invoices.sql }
         - file: { path: ../pipelines/spend/gold/fact_cost_savings.sql }
 
-        # -------------------------------------------------------------- revenue
-        - file: { path: ../pipelines/revenue/bronze/fusion_ar.sql }
-        - file: { path: ../pipelines/revenue/bronze/cms_billing.sql }
-        - file: { path: ../pipelines/revenue/silver/invoice_ar.sql }
-        - file: { path: ../pipelines/revenue/gold/fact_revenue.sql }
-
-        # ----------------------------------------------------------- accounting
-        - file: { path: ../pipelines/accounting/bronze/fusion_gl.sql }
-        - file: { path: ../pipelines/accounting/silver/gl_journal.sql }
-        - file: { path: ../pipelines/accounting/silver/coa_account.sql }
-        - file: { path: ../pipelines/accounting/gold/dim_account.sql }
-        - file: { path: ../pipelines/accounting/gold/dim_cost_center.sql }
-        - file: { path: ../pipelines/accounting/gold/fact_gl_entries.sql }
-        - file: { path: ../pipelines/accounting/gold/fact_trial_balance.sql }
-
-        # ---------------------------------------------------------------- legal
-        - file: { path: ../pipelines/legal/bronze/ariba_contract_workspace.sql }
-        - file: { path: ../pipelines/legal/bronze/cms_contracts.sql }
-        - file: { path: ../pipelines/legal/silver/contract_inbound.sql }
-        - file: { path: ../pipelines/legal/silver/contract_outbound.sql }
-
         # ------------------------------------------------------- parties (master)
+        # Supplier side only (customer side dropped in the lean fork).
         - file: { path: ../pipelines/parties/bronze/ariba_supplier_master.sql }
         - file: { path: ../pipelines/parties/bronze/fusion_supplier_sites.sql }
-        - file: { path: ../pipelines/parties/bronze/fusion_customer_sites.sql }
         - file: { path: ../pipelines/parties/silver/supplier.sql }
-        - file: { path: ../pipelines/parties/silver/customer.sql }
         - file: { path: ../pipelines/parties/gold/dim_supplier.sql }
-        - file: { path: ../pipelines/parties/gold/dim_customer.sql }
 
-        # ------------------------------------------------------------------ fpa
-        - file: { path: ../pipelines/fpa/gold/fact_fpa_actuals.sql }
-        - file: { path: ../pipelines/fpa/gold/fact_fpa_budgets.sql }
-        - file: { path: ../pipelines/fpa/gold/fact_fpa_forecasts.sql }
-
-        # ------------------------------------------------------------------- hr
-        - file: { path: ../pipelines/hr/bronze/workday_workers.sql }
-        - file: { path: ../pipelines/hr/gold/dim_employees.sql }
-        - file: { path: ../pipelines/hr/gold/fact_emp_quarterly_cost.sql }
+        # ---------------------------------------------------------------- legal
+        # Inbound contracts only (outbound + CMS dropped).
+        - file: { path: ../pipelines/legal/bronze/ariba_contract_workspace.sql }
+        - file: { path: ../pipelines/legal/silver/contract_inbound.sql }
 
         # ------------------------------------------------------------ reference
         - file: { path: ../pipelines/reference/gold/dim_segment.sql }
@@ -74,15 +48,7 @@ resources:
         - file: { path: ../pipelines/reference/gold/dim_spend_category.sql }
 
       configuration:
-        # Exposed inside SQL files as ${catalog}, ${schema_bronze_ariba}, etc.
+        # Exposed inside SQL files as ${catalog}, ${schema}, ${raw_volume}.
         catalog: ${var.catalog}
-        schema_raw: ${var.schema_raw}
-        schema_bronze_ariba: ${var.schema_bronze_ariba}
-        schema_bronze_fusion: ${var.schema_bronze_fusion}
-        schema_bronze_cms: ${var.schema_bronze_cms}
-        schema_bronze_workday: ${var.schema_bronze_workday}
-        schema_silver: ${var.schema_silver}
-        schema_gold: ${var.schema_gold}
-        schema_meta: ${var.schema_meta}
-        schema_ml: ${var.schema_ml}
+        schema: ${var.schema}
         raw_volume: ${var.raw_volume}

@@ -27,24 +27,25 @@
 import glob
 
 dbutils.widgets.text("catalog", "")
-dbutils.widgets.text("schema_raw", "")
-dbutils.widgets.text("schema_meta", "")
+dbutils.widgets.text("schema", "")
 dbutils.widgets.text("raw_volume", "")
 dbutils.widgets.text("tolerance_pct", "2.0")
 
 catalog = get_widget("catalog", "")
-schema_raw = get_widget("schema_raw", "")
-schema_meta = get_widget("schema_meta", "")
+schema = get_widget("schema", "")
 raw_volume = get_widget("raw_volume", "")
 tol = float(get_widget("tolerance_pct", "2.0")) / 100.0
 loose_tol = 0.15  # loose ±15% on cross-step matching
 
-anchors = read_anchors(spark, catalog, schema_meta)
+anchors = read_anchors(spark, catalog, schema)
 periods = quarters_to_generate(anchors, None)
 
-ARIBA = volume_dir(catalog, schema_raw, raw_volume, "sap_ariba")
-FUSION = volume_dir(catalog, schema_raw, raw_volume, "oracle_fusion")
-CMS = volume_dir(catalog, schema_raw, raw_volume, "inhouse_cms")
+ARIBA = volume_dir(catalog, schema, raw_volume, "sap_ariba")
+FUSION = volume_dir(catalog, schema, raw_volume, "oracle_fusion")
+# CMS-revenue + GL-balance + AP-GL checks below self-skip when their files are
+# absent (the lean fork drops those pillars). Deferred deep trim: see the
+# migration doc — remove those cells and stop 03 emitting AR/GL/customer files.
+CMS = volume_dir(catalog, schema, raw_volume, "inhouse_cms")
 
 # COMMAND ----------
 def within_tol(actual: float, target: float, tol_frac: float) -> Tuple[bool, float]:

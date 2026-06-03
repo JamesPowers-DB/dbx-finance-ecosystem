@@ -229,8 +229,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--dev-app", default="spend-analytics-dev", help="Dev app name.")
     parser.add_argument("--prod-app", default="spend-analytics-prod", help="Prod app name.")
-    parser.add_argument("--dev-catalog", default="horizontal_finance_dev", help="Dev catalog.")
-    parser.add_argument("--prod-catalog", default="horizontal_finance", help="Prod catalog.")
+    parser.add_argument("--dev-catalog", default="main", help="Dev catalog.")
+    parser.add_argument("--prod-catalog", default="main", help="Prod catalog.")
     return parser.parse_args()
 
 

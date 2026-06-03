@@ -6,8 +6,13 @@
 #     env_vars field (it's an "unknown field" warning that does nothing).
 # `valueFrom:` is the one dynamic option — it resolves an app *resource* binding
 # (e.g. the warehouse) at runtime. `value:` are literals.
-# ► PROD KNOBS (the only values that differ for a prod app deploy):
-#     DATABRICKS_CATALOG → horizontal_finance   ·   GENIE_SPACE_TITLE → "(prod)"
+#
+# ► DEPLOY KNOBS for the e2-demo-west workspace (fill before/at deploy):
+#     LAKEBASE_HOST / LAKEBASE_DATABASE / LAKEBASE_ENDPOINT — the Lakebase
+#       project on e2-demo-west that backs the savings register + chat history.
+#     GENIE_SPACE_TITLE — must match what provision_genie creates for this target.
+#     DATABRICKS_SERVING_ENDPOINT_NAME — a Claude/Llama endpoint on e2-demo-west.
+#   Catalog + schema match the bundle (catalog `main`, one schema).
 
 command:
   - "uvicorn"
@@ -22,42 +27,37 @@ env:
   - name: DATABRICKS_WAREHOUSE_ID
     valueFrom: warehouse
 
-  # Lakebase Autoscaling — project finance-horizontals, database bizapps-spend.
-  # The app connects as its SERVICE PRINCIPAL (bound via the `lakebase` database
-  # resource in resources/apps.yml); the SDK mints a short-lived credential per
-  # request against LAKEBASE_ENDPOINT for token rotation.
+  # Lakebase Autoscaling — PLACEHOLDERS for the e2-demo-west project that backs
+  # app state (savings_register, chatbot_sessions/messages). The app mints a
+  # short-lived OAuth credential per request against LAKEBASE_ENDPOINT.
+  # ► TODO(deploy): set these to the e2-demo-west Lakebase project/endpoint.
   - name: LAKEBASE_HOST
-    value: "ep-noisy-hill-d1s86l7e.database.us-west-2.cloud.databricks.com"
+    value: "ep-flat-term-d2wmep2h.database.us-east-1.cloud.databricks.com"
   - name: LAKEBASE_PORT
     value: "5432"
   - name: LAKEBASE_DATABASE
-    value: "bizapps-spend"
+    value: "databricks_postgres"
   - name: LAKEBASE_ENDPOINT
-    value: "projects/finance-horizontals/branches/production/endpoints/primary"
+    value: "projects/finance-spend-analytics/branches/production/endpoints/primary"
+
+
+
 
   # Genie space — the ask_genie tool resolves the space id by TITLE at runtime,
-  # so nothing has to write an id here. Must match the title the setup job
-  # provisions (genie_space_def.space_title): "<base> (<target>)". For a prod
-  # deploy, change "(dev)" to "(prod)". Set GENIE_SPACE_ID to pin a specific id.
+  # so nothing has to write an id here. Must match the title provision_genie
+  # creates (genie_space_def.space_title): "<base> (<target>)". Single prod
+  # target → "(prod)". Set GENIE_SPACE_ID to pin a specific id instead.
   - name: GENIE_SPACE_TITLE
-    value: "Strategic Spend Analytics (dev)"
+    value: "Financial Spend Analytics - Strategic Sourcing"
 
   # FMAPI serving endpoint for the procurement chatbot.
-  # Use a Llama 3.3 70B or Claude endpoint registered in Model Serving.
+  # ► TODO(deploy): confirm this Claude endpoint exists on e2-demo-west.
   - name: DATABRICKS_SERVING_ENDPOINT_NAME
     value: "databricks-claude-sonnet-4-6"
 
-  # Unity Catalog coordinates. These can't use ${var.*} (app.yaml is synced
-  # verbatim — not bundle-templated — and the bundle can't set app env vars).
-  # The schemas are CONSTANT across dev/prod (var.schema_* default to these in
-  # every target), so only the catalog is a per-target value.
-  # ► PROD KNOB: set DATABRICKS_CATALOG to "horizontal_finance" for a prod app
-  #   deploy (matches var.catalog's prod default). Dev uses horizontal_finance_dev.
+  # Unity Catalog coordinates. Single schema; tables are layer-prefixed
+  # (gold_ / silver_ / ml_) — the app adds the prefix at the query site.
   - name: DATABRICKS_CATALOG
-    value: "horizontal_finance_dev"     # prod: horizontal_finance
-  - name: DATABRICKS_SILVER_SCHEMA
-    value: "silver"                     # constant across targets
-  - name: DATABRICKS_GOLD_SCHEMA
-    value: "gold"                       # constant across targets
-  - name: DATABRICKS_ML_SCHEMA
-    value: "ml"                         # constant across targets
+    value: "powers_land_catalog"
+  - name: DATABRICKS_SCHEMA
+    value: "finance_spend_analytics"

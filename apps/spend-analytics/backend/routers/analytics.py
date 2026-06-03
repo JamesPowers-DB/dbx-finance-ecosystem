@@ -63,7 +63,7 @@ def kpis(
             ROUND(MEASURE(on_time_payment_pct) * 100, 1) AS on_time_pct,
             ROUND(MEASURE(avg_dpo), 1)                   AS avg_dpo,
             COUNT(DISTINCT supplier_id)                  AS active_suppliers
-        FROM {s.gold}.mv_spend
+        FROM {s.gold}.gold_mv_spend
         WHERE {_window(range, "invoice_date")}
         GROUP BY ALL
         """,
@@ -89,7 +89,7 @@ def spend_composition(
             {col}                            AS label,
             ROUND(MEASURE(total_spend), 2)   AS total_spend,
             ROUND(MEASURE(managed_spend), 2) AS managed_spend
-        FROM {s.gold}.mv_spend
+        FROM {s.gold}.gold_mv_spend
         WHERE {_window(range, "invoice_date")}
         GROUP BY ALL
         ORDER BY total_spend DESC
@@ -120,7 +120,7 @@ def composition_detail(
             ROUND(MEASURE(total_spend), 2)             AS total_spend,
             ROUND(MEASURE(managed_spend), 2)           AS managed_spend,
             ROUND(MEASURE(managed_spend_pct) * 100, 1) AS managed_pct
-        FROM {s.gold}.mv_spend
+        FROM {s.gold}.gold_mv_spend
         WHERE {col} = ? AND {_window(range, "invoice_date")}
         GROUP BY ALL
         ORDER BY total_spend DESC
@@ -147,7 +147,7 @@ def managed_status(
             managed_status                   AS managed_status,
             ROUND(MEASURE(total_spend), 2)   AS spend,
             MEASURE(invoice_count)           AS lines
-        FROM {s.gold}.mv_spend
+        FROM {s.gold}.gold_mv_spend
         WHERE {win}
         GROUP BY ALL
         ORDER BY spend DESC
@@ -159,7 +159,7 @@ def managed_status(
         SELECT
             ROUND(MEASURE(managed_spend_pct) * 100, 1)       AS managed_pct,
             ROUND(MEASURE(managed_spend_pct_count) * 100, 1) AS managed_pct_count
-        FROM {s.gold}.mv_spend
+        FROM {s.gold}.gold_mv_spend
         WHERE {win}
         GROUP BY ALL
         """,
@@ -191,7 +191,7 @@ def spend_trend(
             DATE_TRUNC('{unit}', invoice_date) AS period,
             ROUND(MEASURE(total_spend), 2)     AS total_spend,
             ROUND(MEASURE(managed_spend), 2)   AS managed_spend
-        FROM {s.gold}.mv_spend
+        FROM {s.gold}.gold_mv_spend
         WHERE {_window(range, "invoice_date")}
         GROUP BY ALL
         ORDER BY period ASC
@@ -221,7 +221,7 @@ def lifecycle_funnel(
             ROUND(MEASURE(total_pr_estimate), 2)      AS requested,
             ROUND(MEASURE(total_po_amount), 2)        AS committed,
             ROUND(MEASURE(off_contract_po_amount), 2) AS po_leakage
-        FROM {s.gold}.mv_purchase_orders
+        FROM {s.gold}.gold_mv_purchase_orders
         WHERE {_window(range, "po_created_date")}
         GROUP BY ALL
         """,
@@ -232,7 +232,7 @@ def lifecycle_funnel(
         SELECT
             ROUND(MEASURE(total_spend), 2)     AS paid,
             ROUND(MEASURE(unmanaged_spend), 2) AS unmanaged
-        FROM {s.gold}.mv_spend
+        FROM {s.gold}.gold_mv_spend
         WHERE {_window(range, "invoice_date")}
         GROUP BY ALL
         """,
@@ -296,7 +296,7 @@ def supplier_concentration(
                     ROUND(MEASURE(managed_spend_pct) * 100, 1)    AS managed_spend_pct,
                     ROUND(MEASURE(measured_maverick_pct) * 100, 1) AS measured_maverick_pct,
                     ROUND(MEASURE(avg_dpo), 1)                    AS avg_dpo
-                FROM {s.gold}.mv_supplier_performance
+                FROM {s.gold}.gold_mv_supplier_performance
                 WHERE {_window(range, "invoice_date")}
                 GROUP BY ALL
             )

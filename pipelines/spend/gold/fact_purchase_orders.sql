@@ -10,7 +10,7 @@
 -- classifies invoices — not POs — as the unit of spend.
 -- ============================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_gold}.fact_purchase_orders
+CREATE OR REFRESH MATERIALIZED VIEW ${schema}.gold_fact_purchase_orders
 COMMENT "PO-line commitment fact. Cross-system bridge: source_pr_number FKs to fact_purchase_requests.pr_number for the Ariba→Fusion view of the procurement chain."
 AS
 SELECT
@@ -47,6 +47,6 @@ SELECT
   po.pr_source,
   po.contract_id,
   po.sourcing_event_id
-FROM ${schema_silver}.purchase_order po
-LEFT JOIN ${schema_gold}.dim_supplier s
+FROM ${schema}.silver_purchase_order po
+LEFT JOIN ${schema}.gold_dim_supplier s
   ON po.supplier_id = s.supplier_id;

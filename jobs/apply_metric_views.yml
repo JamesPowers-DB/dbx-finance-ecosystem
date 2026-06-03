@@ -1,7 +1,7 @@
 resources:
   jobs:
     apply_metric_views:
-      name: finance-demo-apply-metric-views-${bundle.target}
+      name: finance-spend-analytics-apply-metric-views-${bundle.target}
       description: >
         Create/refresh the UC metric layer: gold.mv_spend (base — governed
         spend flags in its SQL-query source) and gold.mv_supplier_performance
@@ -22,7 +22,6 @@ resources:
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
-              schema_gold: ${var.schema_gold}
-              schema_silver: ${var.schema_silver}
+              schema: ${var.schema}
       queue:
         enabled: true

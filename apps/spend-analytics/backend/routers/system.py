@@ -55,7 +55,7 @@ def kpis(caller: CallerIdentity = Depends(caller_identity)) -> dict:
             ROUND(MEASURE(contract_coverage_pct) * 100, 1)  AS contract_coverage_pct,
             ROUND(MEASURE(classified_spend_pct) * 100, 1)   AS classified_spend_pct,
             ROUND(MEASURE(on_time_payment_pct) * 100, 1)    AS on_time_payment_pct
-        FROM {s.gold}.mv_spend
+        FROM {s.gold}.gold_mv_spend
         WHERE invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
         GROUP BY ALL
         """,

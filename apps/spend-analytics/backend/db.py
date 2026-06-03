@@ -39,7 +39,7 @@ def t12m_supplier_spend_sql(s: Settings, paid_only: bool = True) -> str:
     paid_clause = f" AND {PAID_PREDICATE}" if paid_only else ""
     return f"""
         SELECT supplier_id, SUM(amount) AS trailing_12m_spend
-        FROM {s.gold}.fact_invoices
+        FROM {s.gold}.gold_fact_invoices
         WHERE invoice_date >= DATE_SUB(CURRENT_DATE(), 365){paid_clause}
         GROUP BY supplier_id
     """

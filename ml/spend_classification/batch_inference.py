@@ -18,21 +18,19 @@
 
 # COMMAND ----------
 dbutils.widgets.text("catalog", "")
-dbutils.widgets.text("schema_gold", "")
-dbutils.widgets.text("schema_ml", "")
+dbutils.widgets.text("schema", "finance_spend_analytics")
 dbutils.widgets.text("model_name", "spend_classifier")
 dbutils.widgets.text("model_alias", "production")
 
 catalog = dbutils.widgets.get("catalog")
-schema_gold = dbutils.widgets.get("schema_gold")
-schema_ml = dbutils.widgets.get("schema_ml")
+schema = dbutils.widgets.get("schema")
 model_name = dbutils.widgets.get("model_name")
 model_alias = dbutils.widgets.get("model_alias")
 
-uc_model = f"{catalog}.{schema_ml}.{model_name}"
+uc_model = f"{catalog}.{schema}.{model_name}"
 model_uri = f"models:/{uc_model}@{model_alias}"
-target_fqn = f"`{catalog}`.`{schema_ml}`.invoice_classifications"
-source_fqn = f"`{catalog}`.`{schema_gold}`.fact_invoices"
+target_fqn = f"`{catalog}`.`{schema}`.ml_invoice_classifications"
+source_fqn = f"`{catalog}`.`{schema}`.gold_fact_invoices"
 print(f"Scoring {source_fqn} with {model_uri}")
 print(f"Writing predictions to {target_fqn}")
 
@@ -77,7 +75,7 @@ source_sdf = spark.sql(f"""
       LN(1 + GREATEST(CAST(fi.unit_price AS DOUBLE), 0.0)) AS log_unit_price,
       COALESCE(CAST(fi.supplier_maverick_propensity AS DOUBLE), 0.0)
                                                           AS supplier_maverick_propensity
-    FROM `{catalog}`.`{schema_gold}`.fact_invoices fi
+    FROM `{catalog}`.`{schema}`.gold_fact_invoices fi
 """)
 
 # Defensive: replace null categoricals with the same sentinel the training pipeline saw.
@@ -129,8 +127,15 @@ scored = (
     .withColumn("scored_at", F.current_timestamp())
 )
 
-# Materialize so the MERGE doesn't re-run the spark_udf on every read
-scored.cache()
+# Materialize so the MERGE (and the count) don't re-run the model UDF on every
+# read. .cache()/.persist() are unsupported on serverless, so stage to a Delta
+# table and read it back instead.
+staging_fqn = f"`{catalog}`.`{schema}`.ml_spend_clf_scored_staging"
+(scored.write.format("delta")
+       .mode("overwrite")
+       .option("overwriteSchema", "true")
+       .saveAsTable(staging_fqn))
+scored = spark.table(staging_fqn)
 n_scored = scored.count()
 print(f"Scored {n_scored:,} invoice lines")
 

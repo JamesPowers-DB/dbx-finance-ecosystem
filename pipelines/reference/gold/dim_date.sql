@@ -2,7 +2,7 @@
 -- GOLD — dim_date (2023-01-01 → 2027-12-31)
 -- ============================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_gold}.dim_date
+CREATE OR REFRESH MATERIALIZED VIEW ${schema}.gold_dim_date
 COMMENT "Calendar dim. Date key, fiscal-year/quarter/month, day-of-week, month-name."
 AS
 SELECT

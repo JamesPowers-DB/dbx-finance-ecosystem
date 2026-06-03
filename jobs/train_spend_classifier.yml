@@ -1,7 +1,7 @@
 resources:
   jobs:
     train_spend_classifier:
-      name: finance-demo-train-spend-classifier-${bundle.target}
+      name: finance-spend-analytics-train-spend-classifier-${bundle.target}
       description: >
         End-to-end training orchestration for the spend-classification model.
 
@@ -41,8 +41,7 @@ resources:
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
-              schema_gold: ${var.schema_gold}
-              schema_ml: ${var.schema_ml}
+              schema: ${var.schema}
               maverick_threshold: "0.15"
               test_size: "0.20"
               random_seed: "42"
@@ -56,10 +55,10 @@ resources:
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
-              schema_ml: ${var.schema_ml}
+              schema: ${var.schema}
               model_name: spend_classifier
               model_alias: challenger
-              hpo_trials: "25"
+              hpo_trials: "10"
               hpo_sample_rows: "60000"
 
         - task_key: train_embedding
@@ -71,7 +70,7 @@ resources:
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
-              schema_ml: ${var.schema_ml}
+              schema: ${var.schema}
               model_name: spend_classifier
               model_alias: challenger_embedding
               embedding_endpoint: databricks-bge-large-en
@@ -87,7 +86,7 @@ resources:
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
-              schema_ml: ${var.schema_ml}
+              schema: ${var.schema}
               model_name: spend_classifier
 
         - task_key: batch_inference
@@ -99,8 +98,7 @@ resources:
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
-              schema_gold: ${var.schema_gold}
-              schema_ml: ${var.schema_ml}
+              schema: ${var.schema}
               model_name: spend_classifier
               model_alias: production
 
@@ -113,8 +111,7 @@ resources:
             source: WORKSPACE
             base_parameters:
               catalog: ${var.catalog}
-              schema_gold: ${var.schema_gold}
-              schema_silver: ${var.schema_silver}
+              schema: ${var.schema}
 
       queue:
         enabled: true

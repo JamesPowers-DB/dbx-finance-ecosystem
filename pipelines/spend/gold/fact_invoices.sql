@@ -28,7 +28,7 @@
 -- would supply a partial manually-curated training set instead.
 -- ============================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_gold}.fact_invoices
+CREATE OR REFRESH MATERIALIZED VIEW ${schema}.gold_fact_invoices
 COMMENT "AP invoice LINE fact. Realized-spend surface + ML training payload. true_category_* are demo-only ground truth; in production these come from a manually-curated training set, not source-system data."
 AS
 WITH base AS (
@@ -65,7 +65,7 @@ WITH base AS (
     inv.pr_source,
     inv.contract_id,
     inv.sourcing_event_id
-  FROM ${schema_silver}.invoice_ap inv
+  FROM ${schema}.silver_invoice_ap inv
 )
 SELECT
   b.invoice_line_id,
@@ -129,9 +129,9 @@ SELECT
   c.model_version,
   c.scored_at
 FROM base b
-LEFT JOIN ${schema_gold}.dim_supplier s
+LEFT JOIN ${schema}.gold_dim_supplier s
   ON b.supplier_id = s.supplier_id
-LEFT JOIN ${schema_bronze_fusion}.gl_code_combinations coa
+LEFT JOIN ${schema}.bronze_gl_code_combinations coa
   ON b.code_combination_id = coa.code_combination_id
-LEFT JOIN ${schema_silver}.invoice_classification c
+LEFT JOIN ${schema}.silver_invoice_classification c
   ON b.invoice_line_id = c.invoice_line_id;

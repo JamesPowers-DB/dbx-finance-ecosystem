@@ -1,85 +1,29 @@
 resources:
-  catalogs:
-    # Bundle-internal handle. The deployed catalog name comes from `name` below;
-    # this key just gives other bundle resources a way to reference this one.
-    main:
-      name: ${var.catalog}
-      comment: >
-        Strategic Spend Analytics demo — filing-anchored, fully anonymized
-        finance data ecosystem. Wave 1 horizontal GTM (F-1 Spend Visibility).
-
+  # NOTE: this bundle does NOT create the catalog — it deploys INTO an existing
+  # one (var.catalog). On accounts with Default Storage / a metastore storage
+  # root, an API-created catalog needs an explicit MANAGED LOCATION, so creating
+  # it from the bundle fails; instead point var.catalog at a catalog that already
+  # exists, and the schema + volume below are created inside it (inheriting its
+  # storage root). To create a fresh catalog, do it once in the UI (Default
+  # Storage) or with `CREATE CATALOG <name> MANAGED LOCATION '<s3-path>'`.
   schemas:
-    raw_data:
+    # One schema holds every layer. Tables are layer-prefixed (bronze_ / silver_
+    # / gold_ / ml_ / meta_) so the medallion + ML + metadata + raw volume all
+    # live together under ${var.schema}.
+    finance_spend_analytics:
       catalog_name: ${var.catalog}
-      name: ${var.schema_raw}
+      name: ${var.schema}
       comment: >
-        Raw landing zone. Single managed volume holds files from all sources —
-        sap_ariba/ (CSV), oracle_fusion/ (CSV+Parquet), inhouse_cms/ (JSON).
-
-    bronze_ariba:
-      catalog_name: ${var.catalog}
-      name: ${var.schema_bronze_ariba}
-      comment: >
-        Bronze — SAP Ariba shape. ALL_CAPS with German codes (LIFNR, EBELN).
-        1:1 with source files, plus _ingested_at audit column.
-
-    bronze_fusion:
-      catalog_name: ${var.catalog}
-      name: ${var.schema_bronze_fusion}
-      comment: >
-        Bronze — Oracle Fusion Cloud shape. snake_case with classic prefixes
-        (gl_je_, ap_, ar_, xla_). 1:1 with source files, plus audit columns.
-
-    bronze_cms:
-      catalog_name: ${var.catalog}
-      name: ${var.schema_bronze_cms}
-      comment: >
-        Bronze — In-house contract management system. Clean flat snake_case.
-        1:1 with source JSON, plus audit columns.
-
-    bronze_workday:
-      catalog_name: ${var.catalog}
-      name: ${var.schema_bronze_workday}
-      comment: >
-        Bronze — Workday HCM shape. snake_case with Workday's "worker" /
-        "organization" vocabulary. SCD Type 2 history per worker.
-
-    silver:
-      catalog_name: ${var.catalog}
-      name: ${var.schema_silver}
-      comment: >
-        Cleaned, deduplicated, conformed entities (supplier, customer,
-        purchase_order, invoice, contract, gl_journal_entry). Every row tagged
-        with source_system / source_table / source_primary_key for lineage.
-
-    gold:
-      catalog_name: ${var.catalog}
-      name: ${var.schema_gold}
-      comment: >
-        Denormalized facts and dims for business users. Reserves Phase 2 hooks
-        (managed_spend_flag, supplier_canonical_id, unspsc_*, leakage flags).
-
-    _meta:
-      catalog_name: ${var.catalog}
-      name: ${var.schema_meta}
-      comment: >
-        Anchor tables and governance. dim_period_anchors is the single source
-        of truth for per-period financial targets that downstream generators
-        reconcile against.
-
-    ml:
-      catalog_name: ${var.catalog}
-      name: ${var.schema_ml}
-      comment: >
-        ML feature tables and registered models. Reserved for Phase 2 work —
-        spend classification, supplier entity resolution, anomaly detection.
+        Single project schema. bronze_* (source-shaped raw), silver_* (conformed
+        entities), gold_* (facts/dims/metric views), ml_* (spend classifier),
+        meta_* (period anchors). Source files land in the ${var.raw_volume} volume.
 
   volumes:
     raw_files:
       catalog_name: ${var.catalog}
-      schema_name: ${var.schema_raw}
+      schema_name: ${var.schema}
       name: ${var.raw_volume}
       volume_type: MANAGED
       comment: >
-        Landing zone. Subdirectories — sap_ariba/, oracle_fusion/, inhouse_cms/.
-        Generators write here; bronze pipelines read from here.
+        Landing zone. Subdirectories — sap_ariba/, oracle_fusion/. Generators
+        write here; bronze pipelines read from here.

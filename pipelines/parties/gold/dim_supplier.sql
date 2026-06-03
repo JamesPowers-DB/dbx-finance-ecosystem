@@ -5,7 +5,7 @@
 -- Pre-Phase 2, canonical_supplier_id == supplier_id (identity).
 -- ============================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_gold}.dim_supplier
+CREATE OR REFRESH MATERIALIZED VIEW ${schema}.gold_dim_supplier
 COMMENT "Supplier dim. ML hint columns surface category affinity + maverick propensity. Phase 2 entity-resolution model populates canonical_supplier_id."
 AS
 WITH ranked AS (
@@ -24,7 +24,7 @@ WITH ranked AS (
     is_regulated_supplier,
     ROW_NUMBER() OVER (PARTITION BY supplier_id
                        ORDER BY CASE WHEN supplier_name IS NOT NULL THEN 0 ELSE 1 END) AS rn
-  FROM ${schema_silver}.supplier
+  FROM ${schema}.silver_supplier
 )
 SELECT
   supplier_id,

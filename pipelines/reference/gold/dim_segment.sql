@@ -2,7 +2,7 @@
 -- GOLD — dim_segment
 -- ============================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_gold}.dim_segment
+CREATE OR REFRESH MATERIALIZED VIEW ${schema}.gold_dim_segment
 COMMENT "reporting segments + corporate. Static."
 AS
 SELECT segment_code, segment_name, company_code, sort_order FROM VALUES

@@ -1,7 +1,7 @@
 -- ============================================================================
 -- BRONZE — Oracle Fusion AP (invoice headers + invoice lines)
 -- ============================================================================
--- Target schema: ${schema_bronze_fusion}
+-- Target schema: ${schema}
 --
 -- Header grain: ap_invoices_all (one row per invoice).
 -- Line grain:   ap_invoice_lines_all (REPLACES ap_invoice_distributions_all
@@ -16,16 +16,16 @@
 -- 2-tier ML training labels (_true_category_primary + _true_category_secondary).
 -- ============================================================================
 
-CREATE OR REFRESH STREAMING TABLE ${schema_bronze_fusion}.ap_invoices_all
+CREATE OR REFRESH STREAMING TABLE ${schema}.bronze_ap_invoices_all
 COMMENT "Oracle Payables invoice headers. payment_status_flag drives AP ops metrics (on-time payment, DPO). po_matched_flag distinguishes PO-matched (Y) from non-PO direct vouchers (N)."
 AS SELECT *, _metadata.file_path AS _source_file, _metadata.file_modification_time AS _ingested_at
 FROM STREAM read_files(
-  "/Volumes/${catalog}/${schema_raw}/${raw_volume}/oracle_fusion/ap_invoices_all_*.csv",
+  "/Volumes/${catalog}/${schema}/${raw_volume}/oracle_fusion/ap_invoices_all_*.csv",
   format => "csv", header => true, inferColumnTypes => true);
 
-CREATE OR REFRESH STREAMING TABLE ${schema_bronze_fusion}.ap_invoice_lines_all
+CREATE OR REFRESH STREAMING TABLE ${schema}.bronze_ap_invoice_lines_all
 COMMENT "Oracle Payables invoice lines. The ML spend-classification model trains on this grain. Replaces the old ap_invoice_distributions_all layer."
 AS SELECT *, _metadata.file_path AS _source_file, _metadata.file_modification_time AS _ingested_at
 FROM STREAM read_files(
-  "/Volumes/${catalog}/${schema_raw}/${raw_volume}/oracle_fusion/ap_invoice_lines_all_*.parquet",
+  "/Volumes/${catalog}/${schema}/${raw_volume}/oracle_fusion/ap_invoice_lines_all_*.parquet",
   format => "parquet");

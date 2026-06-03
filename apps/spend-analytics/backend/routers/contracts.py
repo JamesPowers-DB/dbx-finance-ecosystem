@@ -48,8 +48,8 @@ def _contract_scoped_consumption_sql(s) -> str:
                 THEN ROUND(COALESCE(SUM(i.amount), 0) / c.total_committed_spend * 100, 1)
                 ELSE NULL
             END AS pct_consumed
-        FROM {s.silver}.contract_inbound c
-        LEFT JOIN {s.gold}.fact_invoices i
+        FROM {s.silver}.silver_contract_inbound c
+        LEFT JOIN {s.gold}.gold_fact_invoices i
             ON i.supplier_id = c.supplier_id
            AND i.invoice_date BETWEEN c.effective_date AND c.expiration_date
            AND i.payment_status = 'PAID'
@@ -105,8 +105,8 @@ def list_contracts(
             c.status,
             c.region,
             c.source_system
-        FROM {s.silver}.contract_inbound c
-        LEFT JOIN {s.gold}.dim_supplier s
+        FROM {s.silver}.silver_contract_inbound c
+        LEFT JOIN {s.gold}.gold_dim_supplier s
             ON c.supplier_id = s.supplier_id
         LEFT JOIN ({t12m_supplier_spend_sql(s)}) inv_agg
             ON c.supplier_id = inv_agg.supplier_id
@@ -144,7 +144,7 @@ def contract_burn_down(
         caller,
         f"""
         SELECT contract_workspace_id, title, total_committed_spend
-        FROM {s.silver}.contract_inbound
+        FROM {s.silver}.silver_contract_inbound
         WHERE contract_workspace_id = ?
         """,
         [contract_id],
@@ -157,7 +157,7 @@ def contract_burn_down(
         f"""
         WITH c AS (
             SELECT supplier_id, effective_date, expiration_date
-            FROM {s.silver}.contract_inbound
+            FROM {s.silver}.silver_contract_inbound
             WHERE contract_workspace_id = ?
         )
         SELECT
@@ -167,7 +167,7 @@ def contract_burn_down(
                 ORDER BY i.fiscal_year, i.fiscal_quarter
                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
             )                                                             AS cumulative_spend
-        FROM {s.gold}.fact_invoices i
+        FROM {s.gold}.gold_fact_invoices i
         JOIN c
           ON i.supplier_id = c.supplier_id
          AND i.invoice_date BETWEEN c.effective_date AND c.expiration_date
@@ -217,7 +217,7 @@ def contract_invoices(
     # response; the real query joins via the CTE below.
     exists = fetch_one(
         caller,
-        f"SELECT 1 FROM {s.silver}.contract_inbound WHERE contract_workspace_id = ?",
+        f"SELECT 1 FROM {s.silver}.silver_contract_inbound WHERE contract_workspace_id = ?",
         [contract_id],
     )
     if not exists:
@@ -228,7 +228,7 @@ def contract_invoices(
         f"""
         WITH c AS (
             SELECT supplier_id, effective_date, expiration_date
-            FROM {s.silver}.contract_inbound
+            FROM {s.silver}.silver_contract_inbound
             WHERE contract_workspace_id = ?
         )
         SELECT
@@ -237,7 +237,7 @@ def contract_invoices(
             CAST(i.invoice_line_id AS STRING) AS invoice_line_id,
             i.invoice_date, i.amount,
             i.true_category_primary, i.payment_status
-        FROM {s.gold}.fact_invoices i
+        FROM {s.gold}.gold_fact_invoices i
         JOIN c
           ON i.supplier_id = c.supplier_id
          AND i.invoice_date BETWEEN c.effective_date AND c.expiration_date
@@ -266,7 +266,7 @@ def contract_purchase_orders(
     s = get_settings()
     exists = fetch_one(
         caller,
-        f"SELECT 1 FROM {s.silver}.contract_inbound WHERE contract_workspace_id = ?",
+        f"SELECT 1 FROM {s.silver}.silver_contract_inbound WHERE contract_workspace_id = ?",
         [contract_id],
     )
     if not exists:
@@ -277,11 +277,11 @@ def contract_purchase_orders(
         f"""
         WITH c AS (
             SELECT supplier_id, effective_date, expiration_date
-            FROM {s.silver}.contract_inbound
+            FROM {s.silver}.silver_contract_inbound
             WHERE contract_workspace_id = ?
         )
         SELECT p.po_number, p.po_line_num, p.extended_amount, p.true_category_primary
-        FROM {s.gold}.fact_purchase_orders p
+        FROM {s.gold}.gold_fact_purchase_orders p
         JOIN c
           ON p.supplier_id = c.supplier_id
          AND p.po_created_date BETWEEN c.effective_date AND c.expiration_date

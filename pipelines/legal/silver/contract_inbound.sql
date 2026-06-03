@@ -2,7 +2,7 @@
 -- SILVER — contract_inbound (supplier-side contracts from Ariba)
 -- ============================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW ${schema_silver}.contract_inbound
+CREATE OR REFRESH MATERIALIZED VIEW ${schema}.silver_contract_inbound
 COMMENT "Inbound (procurement) contracts. Used for contract-leakage detection in Phase 2."
 AS
 SELECT
@@ -19,4 +19,4 @@ SELECT
   CAST(ActualSpendToDate AS DECIMAL(18,2))      AS actual_spend_to_date,
   Status                                        AS status,
   OwningRegion                                  AS region
-FROM ${schema_bronze_ariba}.ARIBA_CONTRACT_WORKSPACE;
+FROM ${schema}.bronze_ariba_contract_workspace;

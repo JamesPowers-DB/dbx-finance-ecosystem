@@ -23,8 +23,7 @@
 
 # COMMAND ----------
 dbutils.widgets.text("catalog", "")
-dbutils.widgets.text("schema_ml", "")
-dbutils.widgets.text("schema_gold", "gold")
+dbutils.widgets.text("schema", "finance_spend_analytics")
 dbutils.widgets.text("model_name", "spend_classifier")
 dbutils.widgets.text("model_alias", "challenger")
 dbutils.widgets.text("max_train_rows", "0")  # 0 = all rows; set lower for quick smoke tests
@@ -32,17 +31,16 @@ dbutils.widgets.text("hpo_trials", "25")         # Optuna trials (0 = skip HPO, 
 dbutils.widgets.text("hpo_sample_rows", "60000") # rows sampled for the HPO search (0 = all)
 
 catalog = dbutils.widgets.get("catalog")
-schema_ml = dbutils.widgets.get("schema_ml")
-schema_gold = dbutils.widgets.get("schema_gold")
+schema = dbutils.widgets.get("schema")
 model_name = dbutils.widgets.get("model_name")
 model_alias = dbutils.widgets.get("model_alias")
 max_train_rows = int(dbutils.widgets.get("max_train_rows"))
 hpo_trials = int(dbutils.widgets.get("hpo_trials"))
 hpo_sample_rows = int(dbutils.widgets.get("hpo_sample_rows"))
 
-uc_model = f"{catalog}.{schema_ml}.{model_name}"
-print(f"Source: {catalog}.{schema_ml}.spend_clf_train")
-print(f"Taxonomy: {catalog}.{schema_gold}.dim_spend_category")
+uc_model = f"{catalog}.{schema}.{model_name}"
+print(f"Source: {catalog}.{schema}.ml_spend_clf_train")
+print(f"Taxonomy: {catalog}.{schema}.gold_dim_spend_category")
 print(f"Target model: {uc_model}@{model_alias}")
 
 # COMMAND ----------
@@ -64,7 +62,7 @@ NUM_COLS = ["log_amount", "log_quantity", "log_unit_price",
             "supplier_maverick_propensity"]
 FEATURE_COLS = [TEXT_COL] + CAT_COLS + NUM_COLS
 
-train_sdf = spark.table(f"`{catalog}`.`{schema_ml}`.spend_clf_train")
+train_sdf = spark.table(f"`{catalog}`.`{schema}`.ml_spend_clf_train")
 if max_train_rows > 0:
     train_sdf = train_sdf.orderBy(F.rand(seed=42)).limit(max_train_rows)
 train_pdf = train_sdf.toPandas()
@@ -82,7 +80,7 @@ print(f"Train shape: {X.shape}; {y.nunique()} distinct leaf labels")
 print(f"Per-class min count: {y.value_counts().min()}")
 
 # Leaf → Parent map from the UC taxonomy table — single source of truth
-taxonomy_pdf = (spark.table(f"`{catalog}`.`{schema_gold}`.dim_spend_category")
+taxonomy_pdf = (spark.table(f"`{catalog}`.`{schema}`.gold_dim_spend_category")
                      .select("secondary_code", "primary_code")
                      .toPandas())
 leaf_to_parent = dict(zip(taxonomy_pdf["secondary_code"], taxonomy_pdf["primary_code"]))

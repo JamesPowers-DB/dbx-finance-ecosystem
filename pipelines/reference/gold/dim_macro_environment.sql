@@ -6,5 +6,5 @@
 -- it leaves the table untouched by pipeline refreshes so the AR(1) noise sequence
 -- stays deterministic across pipeline runs.
 --
--- Querying: SELECT * FROM ${catalog}.${schema_gold}.dim_macro_environment;
+-- Querying: SELECT * FROM ${catalog}.${schema}.gold_dim_macro_environment;
 -- ============================================================================

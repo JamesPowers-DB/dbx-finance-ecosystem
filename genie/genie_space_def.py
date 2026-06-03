@@ -24,11 +24,11 @@ DEFAULT_DESCRIPTION = (
 # Canonical title convention. The app derives <target> from its own app name and
 # resolves the space id by this exact title — so nothing has to write an id back
 # into app.yaml. Keep this in lockstep with the app's resolver.
-TITLE_BASE = "Strategic Spend Analytics"
+TITLE_BASE = "Financial Spend Analytics - Strategic Sourcing"
 
 
 def space_title(target: str) -> str:
-    return f"{TITLE_BASE} ({target})"
+    return f"{TITLE_BASE}"
 
 
 # Genie validates that every id-keyed collection is sorted by id. Monotonic
@@ -45,18 +45,18 @@ def _lines(text: str) -> list[str]:
     return text.splitlines(keepends=True) or [text]
 
 
-def build_serialized_space(catalog: str, schema_gold: str) -> dict:
+def build_serialized_space(catalog: str, schema: str) -> dict:
     """Build the version-2 serialized_space for the given target.
 
-    Every curated object is a metric view in ``catalog.schema_gold``; every
-    example/benchmark query uses MEASURE() against those views.
+    Single schema; metric views are gold-layer artifacts named ``gold_mv_*``.
+    Every example/benchmark query uses MEASURE() against those views.
     """
-    fq = f"{catalog}.{schema_gold}"
-    mv_spend = f"{fq}.mv_spend"
-    mv_supplier = f"{fq}.mv_supplier_performance"
-    mv_contracts = f"{fq}.mv_contracts"
-    mv_pos = f"{fq}.mv_purchase_orders"
-    mv_savings = f"{fq}.mv_cost_savings"
+    fq = f"{catalog}.{schema}"
+    mv_spend = f"{fq}.gold_mv_spend"
+    mv_supplier = f"{fq}.gold_mv_supplier_performance"
+    mv_contracts = f"{fq}.gold_mv_contracts"
+    mv_pos = f"{fq}.gold_mv_purchase_orders"
+    mv_savings = f"{fq}.gold_mv_cost_savings"
 
     tables = sorted(
         [{"identifier": i} for i in (mv_spend, mv_supplier, mv_contracts, mv_pos, mv_savings)],

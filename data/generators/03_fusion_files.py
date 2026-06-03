@@ -4,7 +4,7 @@
 # MAGIC
 # MAGIC Fusion is downstream of Ariba: receives released PRs, issues POs,
 # MAGIC books AP invoices, posts to GL, and tracks payments. Outputs in
-# MAGIC `/Volumes/${catalog}/${schema_raw}/${raw_volume}/oracle_fusion/`.
+# MAGIC `/Volumes/${catalog}/${schema}/${raw_volume}/oracle_fusion/`.
 # MAGIC
 # MAGIC **Reference (one file each):**
 # MAGIC - `gl_periods.csv` — calendar periods (YYYY-MM)
@@ -28,29 +28,25 @@
 
 # COMMAND ----------
 dbutils.widgets.text("catalog", "")
-dbutils.widgets.text("schema_raw", "")
-dbutils.widgets.text("schema_meta", "")
-dbutils.widgets.text("schema_gold", "")
+dbutils.widgets.text("schema", "")
 dbutils.widgets.text("raw_volume", "")
 dbutils.widgets.text("target_fiscal_year", "")
 dbutils.widgets.text("target_fiscal_quarter", "")
 
 catalog = get_widget("catalog", "")
-schema_raw = get_widget("schema_raw", "")
-schema_meta = get_widget("schema_meta", "")
-schema_gold = get_widget("schema_gold", "")
+schema = get_widget("schema", "")
 raw_volume = get_widget("raw_volume", "")
 target = get_target_quarter()
 
-ensure_volume(spark, catalog, schema_raw, raw_volume)
-OUT = volume_dir(catalog, schema_raw, raw_volume, "oracle_fusion")
+ensure_volume(spark, catalog, schema, raw_volume)
+OUT = volume_dir(catalog, schema, raw_volume, "oracle_fusion")
 ensure_dir(OUT)
 
-ARIBA = volume_dir(catalog, schema_raw, raw_volume, "sap_ariba")
+ARIBA = volume_dir(catalog, schema, raw_volume, "sap_ariba")
 
 # COMMAND ----------
-anchors = read_anchors(spark, catalog, schema_meta)
-macro = read_macro(spark, catalog, schema_gold)
+anchors = read_anchors(spark, catalog, schema)
+macro = read_macro(spark, catalog, schema)
 periods = quarters_to_generate(anchors, target)
 print(f"Output: {OUT}\nQuarters: {periods}")
 

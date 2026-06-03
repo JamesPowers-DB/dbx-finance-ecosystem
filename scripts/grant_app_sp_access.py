@@ -7,7 +7,7 @@ Single source of truth = the parameterized template
 
   1. Resolves the bundle's variable VALUES for the target via
      ``databricks bundle validate -t <target>`` — i.e. "whatever the bundle
-     includes" (dev → horizontal_finance_dev, prod → horizontal_finance).
+     includes" (dev → main, prod → main).
   2. Resolves the app's service principal from ``databricks apps get
      spend-analytics-<target>`` (the SP is auto-created at deploy, not in the repo),
      so there's no ``<APP_SP_PRINCIPAL>`` to find/replace.
@@ -42,16 +42,15 @@ TARGETS = {
     "dev": {
         "app": "spend-analytics-dev",
         "genie_space_id": "01f15c3823f2163a9560dadb4357bb31",
-        "fallback_catalog": "horizontal_finance_dev",
+        "fallback_catalog": "main",
     },
     "prod": {
         "app": "spend-analytics-prod",
         "genie_space_id": "",
-        "fallback_catalog": "horizontal_finance",
+        "fallback_catalog": "main",
     },
 }
-FALLBACK_SCHEMAS = {"schema_gold": "gold", "schema_silver": "silver", "schema_ml": "ml",
-                    "schema_bronze_ariba": "bronze_ariba"}
+FALLBACK_SCHEMAS = {"schema": "finance_spend_analytics"}
 DEFAULT_WAREHOUSE_ID = "e9b34f7a2e4b0561"
 
 
@@ -165,7 +164,7 @@ def main() -> int:
     print(f"Resolving bundle variables for target '{args.target}' ...")
     bundle_vars = resolve_bundle_vars(args.target, args.profile)
     print(f"  catalog={bundle_vars.get('catalog')} "
-          f"schemas={[bundle_vars.get(k) for k in ('schema_gold','schema_silver','schema_ml')]}")
+          f"schema={bundle_vars.get('schema')}")
 
     print(f"Resolving service principal for app '{cfg['app']}' ...")
     principal, sp_name = resolve_sp_client_id(cfg["app"], args.profile)

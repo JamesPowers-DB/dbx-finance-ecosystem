@@ -375,16 +375,16 @@ DESCRIPTION_PATTERNS = [
 # MAGIC %md ## Anchor + macro readers
 
 # COMMAND ----------
-def read_anchors(spark, catalog: str, schema_meta: str) -> pl.DataFrame:
-    """Read accepted anchors from `<catalog>.<schema_meta>.dim_period_anchors`
+def read_anchors(spark, catalog: str, schema: str) -> pl.DataFrame:
+    """Read accepted anchors from `<catalog>.<schema>.meta_dim_period_anchors`
     and return a Polars DataFrame. Errors loudly if the table doesn't exist."""
-    sdf = spark.table(f"{catalog}.{schema_meta}.dim_period_anchors")
+    sdf = spark.table(f"{catalog}.{schema}.meta_dim_period_anchors")
     pdf = sdf.toPandas()
     return pl.from_pandas(pdf)
 
 
-def read_macro(spark, catalog: str, schema_gold: str) -> pl.DataFrame:
-    sdf = spark.table(f"{catalog}.{schema_gold}.dim_macro_environment")
+def read_macro(spark, catalog: str, schema: str) -> pl.DataFrame:
+    sdf = spark.table(f"{catalog}.{schema}.gold_dim_macro_environment")
     return pl.from_pandas(sdf.toPandas())
 
 
@@ -392,8 +392,8 @@ def read_macro(spark, catalog: str, schema_gold: str) -> pl.DataFrame:
 # MAGIC %md ## Volume + filesystem helpers
 
 # COMMAND ----------
-def volume_dir(catalog: str, schema_raw: str, raw_volume: str, *parts: str) -> str:
-    return f"/Volumes/{catalog}/{schema_raw}/{raw_volume}/" + "/".join(parts)
+def volume_dir(catalog: str, schema: str, raw_volume: str, *parts: str) -> str:
+    return f"/Volumes/{catalog}/{schema}/{raw_volume}/" + "/".join(parts)
 
 
 def ensure_dir(path: str) -> None:
@@ -401,15 +401,20 @@ def ensure_dir(path: str) -> None:
 
 
 def ensure_catalog_schema(spark, catalog: str, schema: str) -> None:
-    """Idempotent: create catalog + schema if missing. Required before any
-    table write or volume reference in that schema."""
-    spark.sql(f"CREATE CATALOG IF NOT EXISTS `{catalog}`")
+    """Idempotent: ensure the schema exists in an EXISTING catalog.
+
+    The catalog is provisioned outside the generators (existing/shared catalog;
+    the bundle creates only the schema + volume inside it). We deliberately do
+    NOT `CREATE CATALOG` — on metastores where the caller lacks CREATE CATALOG,
+    even `CREATE CATALOG IF NOT EXISTS` is permission-checked and fails on an
+    already-existing catalog."""
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")
 
 
 def ensure_volume(spark, catalog: str, schema: str, volume: str) -> None:
-    """Idempotent: create catalog + schema + volume if missing. Required before
-    any os.makedirs / file write under /Volumes/<catalog>/<schema>/<volume>/.
+    """Idempotent: ensure schema + volume exist (catalog is pre-existing).
+    Required before any os.makedirs / file write under
+    /Volumes/<catalog>/<schema>/<volume>/.
     `os.makedirs` cannot create the volume itself — only subdirectories of an
     existing volume — so this MUST run before `ensure_dir(volume_dir(...))`."""
     ensure_catalog_schema(spark, catalog, schema)
