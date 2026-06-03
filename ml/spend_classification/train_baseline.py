@@ -28,6 +28,8 @@ dbutils.widgets.text("schema_gold", "gold")
 dbutils.widgets.text("model_name", "spend_classifier")
 dbutils.widgets.text("model_alias", "challenger")
 dbutils.widgets.text("max_train_rows", "0")  # 0 = all rows; set lower for quick smoke tests
+dbutils.widgets.text("hpo_trials", "25")         # Optuna trials (0 = skip HPO, use defaults)
+dbutils.widgets.text("hpo_sample_rows", "60000") # rows sampled for the HPO search (0 = all)
 
 catalog = dbutils.widgets.get("catalog")
 schema_ml = dbutils.widgets.get("schema_ml")
@@ -35,6 +37,8 @@ schema_gold = dbutils.widgets.get("schema_gold")
 model_name = dbutils.widgets.get("model_name")
 model_alias = dbutils.widgets.get("model_alias")
 max_train_rows = int(dbutils.widgets.get("max_train_rows"))
+hpo_trials = int(dbutils.widgets.get("hpo_trials"))
+hpo_sample_rows = int(dbutils.widgets.get("hpo_sample_rows"))
 
 uc_model = f"{catalog}.{schema_ml}.{model_name}"
 print(f"Source: {catalog}.{schema_ml}.spend_clf_train")
@@ -50,9 +54,12 @@ import pandas as pd
 from pyspark.sql import functions as F
 
 TEXT_COL = "line_description"
-CAT_COLS = ["supplier_id", "segment_code", "payment_terms", "currency",
-            "supplier_region", "gl_account", "direct_indirect",
-            "addressability", "category_primary_hint"]
+# LEAKY FEATURES REMOVED: `supplier_id` (one-hot memorizes the near-deterministic
+# supplier→category mapping in this synthetic data) and `category_primary_hint`
+# (= the supplier's generative category — circular with the label). The model now
+# classifies from the line text + defensible tabular signals.
+CAT_COLS = ["segment_code", "payment_terms", "currency",
+            "supplier_region", "gl_account", "direct_indirect", "addressability"]
 NUM_COLS = ["log_amount", "log_quantity", "log_unit_price",
             "supplier_maverick_propensity"]
 FEATURE_COLS = [TEXT_COL] + CAT_COLS + NUM_COLS
@@ -88,7 +95,11 @@ assert not missing_in_taxonomy, (
 )
 
 # COMMAND ----------
-# MAGIC %md ## Pipeline — TF-IDF + One-Hot + LightGBM
+# MAGIC %md ## Pipeline factory — TF-IDF + One-Hot + LightGBM
+# MAGIC
+# MAGIC A `build_pipeline(params)` factory so the Optuna search and the final fit
+# MAGIC share one construction. The leaky categoricals are already excluded from
+# MAGIC `CAT_COLS`, so the model leans on `line_description` + tabular signals.
 
 # COMMAND ----------
 from sklearn.compose import ColumnTransformer
@@ -97,32 +108,95 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 from lightgbm import LGBMClassifier
 
-preproc = ColumnTransformer([
-    ("text", TfidfVectorizer(
-        ngram_range=(1, 2),
-        max_features=20_000,
-        lowercase=True,
-        sublinear_tf=True,
-        min_df=3,
-     ), TEXT_COL),
-    ("cat",  OneHotEncoder(handle_unknown="ignore", min_frequency=50, sparse_output=True), CAT_COLS),
-    ("num",  "passthrough", NUM_COLS),
-])
+N_CLASSES = int(y.nunique())
 
-clf = LGBMClassifier(
-    objective="multiclass",
-    num_class=y.nunique(),
-    n_estimators=300,
-    max_depth=8,
-    num_leaves=63,
-    learning_rate=0.05,
-    class_weight="balanced",
-    random_state=42,
-    n_jobs=-1,
-    verbosity=-1,
-)
+DEFAULT_PARAMS = {
+    "tfidf_max_features": 20_000, "tfidf_ngram_max": 2, "tfidf_min_df": 3,
+    "lgbm_n_estimators": 300, "lgbm_max_depth": 8, "lgbm_num_leaves": 63,
+    "lgbm_learning_rate": 0.05, "lgbm_min_child_samples": 20, "lgbm_reg_lambda": 0.0,
+    "lgbm_subsample": 1.0, "lgbm_colsample_bytree": 1.0,
+}
 
-pipe = Pipeline([("preproc", preproc), ("clf", clf)])
+
+def build_pipeline(params: dict) -> Pipeline:
+    preproc = ColumnTransformer([
+        ("text", TfidfVectorizer(
+            ngram_range=(1, int(params["tfidf_ngram_max"])),
+            max_features=int(params["tfidf_max_features"]),
+            lowercase=True, sublinear_tf=True, min_df=int(params["tfidf_min_df"]),
+         ), TEXT_COL),
+        ("cat",  OneHotEncoder(handle_unknown="ignore", min_frequency=50, sparse_output=True), CAT_COLS),
+        ("num",  "passthrough", NUM_COLS),
+    ])
+    clf = LGBMClassifier(
+        objective="multiclass", num_class=N_CLASSES,
+        n_estimators=int(params["lgbm_n_estimators"]),
+        max_depth=int(params["lgbm_max_depth"]),
+        num_leaves=int(params["lgbm_num_leaves"]),
+        learning_rate=float(params["lgbm_learning_rate"]),
+        min_child_samples=int(params["lgbm_min_child_samples"]),
+        reg_lambda=float(params["lgbm_reg_lambda"]),
+        subsample=float(params["lgbm_subsample"]),
+        colsample_bytree=float(params["lgbm_colsample_bytree"]),
+        class_weight="balanced", random_state=42, n_jobs=-1, verbosity=-1,
+    )
+    return Pipeline([("preproc", preproc), ("clf", clf)])
+
+# COMMAND ----------
+# MAGIC %md ## Hyperparameter search (Optuna)
+# MAGIC
+# MAGIC Maximizes **macro-F1** on a stratified validation split (macro-F1 respects
+# MAGIC the class imbalance across the 30 leaves — accuracy would flatter the big
+# MAGIC classes). Runs on a row sub-sample for speed; the winner is refit on the full
+# MAGIC training set below. Set `hpo_trials=0` to skip and use `DEFAULT_PARAMS`.
+
+# COMMAND ----------
+import optuna
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import f1_score
+
+if hpo_trials > 0:
+    if hpo_sample_rows > 0 and len(X) > hpo_sample_rows:
+        X_hpo, _, y_hpo, _ = train_test_split(
+            X, y, train_size=hpo_sample_rows, stratify=y, random_state=42)
+    else:
+        X_hpo, y_hpo = X, y
+    X_tr, X_val, y_tr, y_val = train_test_split(
+        X_hpo, y_hpo, test_size=0.25, stratify=y_hpo, random_state=42)
+    print(f"HPO search: {len(X_tr):,} train / {len(X_val):,} val rows over {hpo_trials} trials")
+
+    def objective(trial):
+        params = {
+            "tfidf_max_features": trial.suggest_categorical("tfidf_max_features", [5_000, 10_000, 20_000]),
+            "tfidf_ngram_max":    trial.suggest_int("tfidf_ngram_max", 1, 2),
+            "tfidf_min_df":       trial.suggest_int("tfidf_min_df", 2, 5),
+            "lgbm_n_estimators":  trial.suggest_int("lgbm_n_estimators", 200, 600, step=100),
+            "lgbm_max_depth":     trial.suggest_int("lgbm_max_depth", 4, 12),
+            "lgbm_num_leaves":    trial.suggest_int("lgbm_num_leaves", 31, 127),
+            "lgbm_learning_rate": trial.suggest_float("lgbm_learning_rate", 0.02, 0.2, log=True),
+            "lgbm_min_child_samples": trial.suggest_int("lgbm_min_child_samples", 10, 100),
+            "lgbm_reg_lambda":    trial.suggest_float("lgbm_reg_lambda", 1e-3, 10.0, log=True),
+            "lgbm_subsample":     trial.suggest_float("lgbm_subsample", 0.6, 1.0),
+            "lgbm_colsample_bytree": trial.suggest_float("lgbm_colsample_bytree", 0.6, 1.0),
+        }
+        p = build_pipeline(params)
+        p.fit(X_tr, y_tr)
+        return f1_score(y_val, p.predict(X_val), average="macro")
+
+    study = optuna.create_study(direction="maximize",
+                                sampler=optuna.samplers.TPESampler(seed=42))
+    study.optimize(objective, n_trials=hpo_trials, show_progress_bar=False)
+    best_params = {**DEFAULT_PARAMS, **study.best_params}
+    best_hpo_f1 = float(study.best_value)
+    print(f"Optuna best macro-F1 (val sub-sample): {best_hpo_f1:.4f}")
+    print(f"Best params: {study.best_params}")
+else:
+    best_params = dict(DEFAULT_PARAMS)
+    best_hpo_f1 = float("nan")
+    print("HPO disabled (hpo_trials=0) — using DEFAULT_PARAMS")
+
+# Final estimator (refit on the full training set in the MLflow run below).
+pipe = build_pipeline(best_params)
 
 # COMMAND ----------
 # MAGIC %md ## Custom pyfunc wrapper — emits the 2-tier prediction surface
@@ -238,11 +312,13 @@ with mlflow.start_run(run_name="spend_clf_baseline_lgbm_2tier") as run:
     mlflow.log_metric("train_n_rows", float(len(X)))
     mlflow.log_metric("train_n_leaf_classes", float(y.nunique()))
     mlflow.log_metric("train_n_parent_classes", float(len(set(leaf_to_parent.values()))))
-    mlflow.log_param("text_max_features", 20_000)
+    mlflow.log_params(best_params)
     mlflow.log_param("ohe_min_frequency", 50)
-    mlflow.log_param("lgbm_n_estimators", 300)
-    mlflow.log_param("lgbm_max_depth", 8)
-    mlflow.log_param("lgbm_learning_rate", 0.05)
+    mlflow.log_param("hpo_trials", hpo_trials)
+    mlflow.log_param("feature_cols", ",".join(FEATURE_COLS))
+    mlflow.log_param("dropped_leaky_features", "supplier_id,category_primary_hint")
+    if hpo_trials > 0:
+        mlflow.log_metric("hpo_best_val_macro_f1", best_hpo_f1)
     print(f"Training leaf accuracy: {leaf_acc:.4f}; parent accuracy: {parent_acc:.4f}")
 
     # Signature: input = features, output = the 4-column DataFrame

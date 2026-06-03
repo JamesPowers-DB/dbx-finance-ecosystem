@@ -5,7 +5,7 @@
 -- loaded-cost assumption (see pipelines/hr/gold/fact_emp_quarterly_cost.sql).
 -- Real HR feed lands later.
 -- ============================================================================
-USE CATALOG horizontal_finance_dev;
+USE CATALOG ${var.catalog};
 
 -- Section 1 ------------------------------------------------------------------
 -- Quarterly headcount cost by segment.
@@ -15,7 +15,7 @@ SELECT
   segment_code,
   headcount,
   ROUND(quarterly_cost_usd / 1e6, 2)   AS quarterly_cost_mm
-FROM gold.fact_emp_quarterly_cost
+FROM ${var.schema_gold}.fact_emp_quarterly_cost
 ORDER BY fiscal_year, fiscal_quarter, segment_code;
 
 -- Section 2 ------------------------------------------------------------------
@@ -29,7 +29,7 @@ SELECT
   MAX(headcount)                        AS max_headcount,
   ROUND(AVG(headcount), 0)              AS avg_headcount,
   ROUND(SUM(quarterly_cost_usd) / 1e6, 2) AS total_cost_mm
-FROM gold.fact_emp_quarterly_cost
+FROM ${var.schema_gold}.fact_emp_quarterly_cost
 GROUP BY segment_code
 ORDER BY total_cost_mm DESC;
 
@@ -44,5 +44,5 @@ SELECT
   headcount - LAG(headcount) OVER (PARTITION BY segment_code ORDER BY fiscal_year, fiscal_quarter) AS delta,
   ROUND(100.0 * (headcount - LAG(headcount) OVER (PARTITION BY segment_code ORDER BY fiscal_year, fiscal_quarter))
                 / NULLIF(LAG(headcount) OVER (PARTITION BY segment_code ORDER BY fiscal_year, fiscal_quarter), 0), 2) AS pct_change
-FROM gold.fact_emp_quarterly_cost
+FROM ${var.schema_gold}.fact_emp_quarterly_cost
 ORDER BY segment_code, fiscal_year, fiscal_quarter;

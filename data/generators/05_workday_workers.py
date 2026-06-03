@@ -109,7 +109,7 @@ def make_new_worker(segment_code: str, hire_date: date) -> Dict:
     first = str(first_pool[int(rng.integers(0, len(first_pool)))])
     last  = str(last_pool[int(rng.integers(0, len(last_pool)))])
     email_local = f"{first.lower()}.{last.lower()}.{next_worker_id - 1}".replace(" ", "")
-    email = f"{email_local}@helios.example"
+    email = f"{email_local}@example.com"
 
     band = SENIORITY_BANDS[int(rng.choice(len(SENIORITY_BANDS), p=SENIORITY_BAND_WEIGHTS))]
     base = float(round(rng.uniform(band["salary_min"], band["salary_max"]), 2))

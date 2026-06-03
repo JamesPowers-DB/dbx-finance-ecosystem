@@ -14,6 +14,11 @@
 # MAGIC    is hard in reality — keep this loose.)
 # MAGIC 5. **AP balance**: Σ(creation_credits) − Σ(payment_debits) ≈ Σ(open invoices) by
 # MAGIC    period — informational only, no hard fail.
+# MAGIC 6. **Spend-taxonomy parity (strict)**: every `(primary, secondary)` pair on raw lines
+# MAGIC    is a valid leaf in `_lib.SPEND_CATEGORY_HIERARCHY`.
+# MAGIC 7. **Procurement document lineage**: every non-null `_contract_id` / `_sourcing_event_id`
+# MAGIC    resolves to a registry row (strict); Managed/Contracted/Sourced coverage by $ vs
+# MAGIC    count + `pr_source` mix (informational).
 
 # COMMAND ----------
 # MAGIC %run ./_lib
@@ -129,7 +134,7 @@ for (fy, fq) in periods:
 
 # COMMAND ----------
 print("=== PR → PO → Invoice volumes (loose ±15%) ===")
-bukrs_to_seg = {s["company_code"]: s["code"] for s in HELIOS_SEGMENTS}
+bukrs_to_seg = {s["company_code"]: s["code"] for s in SEGMENTS}
 
 for (fy, fq) in periods:
     label = f"{fy}Q{fq}"
@@ -290,6 +295,94 @@ for (fy, fq) in periods:
             pl.read_parquet(inv_line_f).select(["_true_category_primary", "_true_category_secondary"]),
             f"Invoice lines {label}",
         )
+
+# COMMAND ----------
+# MAGIC %md ## (7) Procurement document lineage (FK integrity STRICT + story telemetry)
+# MAGIC
+# MAGIC Every non-null `_contract_id` / `_sourcing_event_id` stamped on a PR or invoice
+# MAGIC line must resolve to a real `ARIBA_CONTRACT_WORKSPACE` / `ARIBA_SOURCING_EVENT`
+# MAGIC row (strict). Then report Managed / Contracted / Sourced coverage **by $ and by
+# MAGIC count** (managed spend should be a small count of large dollars) and the
+# MAGIC `pr_source` mix — informational, this is the headline-metric tuning surface.
+
+# COMMAND ----------
+print("=== Procurement document lineage ===")
+contract_ids: set = set()
+event_ids: set = set()
+cf = f"{ARIBA}/ARIBA_CONTRACT_WORKSPACE.csv"
+ef = f"{ARIBA}/ARIBA_SOURCING_EVENT.csv"
+if os.path.exists(cf):
+    contract_ids = set(pl.read_csv(cf).get_column("ContractWorkspaceId").to_list())
+if os.path.exists(ef):
+    event_ids = set(pl.read_csv(ef).get_column("EventId").to_list())
+print(f"  Registry: {len(contract_ids):,} contracts, {len(event_ids):,} sourcing events")
+
+tot_amt = tot_cnt = 0.0
+con_amt = con_cnt = 0.0
+evt_amt = evt_cnt = 0.0
+mgd_amt = mgd_cnt = 0.0
+src_amt: Dict[str, float] = {}
+src_cnt: Dict[str, float] = {}
+bad_contract_refs: set = set()
+bad_event_refs: set = set()
+
+
+def _check_fk(df: pl.DataFrame):
+    global bad_contract_refs, bad_event_refs
+    cids = df.filter(pl.col("_contract_id").is_not_null()).get_column("_contract_id").to_list()
+    eids = df.filter(pl.col("_sourcing_event_id").is_not_null()).get_column("_sourcing_event_id").to_list()
+    bad_contract_refs |= (set(cids) - contract_ids)
+    bad_event_refs |= (set(eids) - event_ids)
+
+
+for (fy, fq) in periods:
+    label = f"{fy}Q{fq}"
+    pr_line_f = f"{ARIBA}/EBAN_PR_LINE_{label}.csv"
+    inv_line_f = f"{FUSION}/ap_invoice_lines_all_{label}.parquet"
+    if os.path.exists(pr_line_f):
+        _check_fk(pl.read_csv(pr_line_f).select(["_contract_id", "_sourcing_event_id"]))
+    if not os.path.exists(inv_line_f):
+        continue
+    inv = pl.read_parquet(inv_line_f).select(["amount", "_contract_id", "_sourcing_event_id", "_pr_source"])
+    _check_fk(inv)
+    tot_amt += float(inv.get_column("amount").sum() or 0.0); tot_cnt += inv.height
+    c = inv.filter(pl.col("_contract_id").is_not_null())
+    con_amt += float(c.get_column("amount").sum() or 0.0); con_cnt += c.height
+    e = inv.filter(pl.col("_sourcing_event_id").is_not_null())
+    evt_amt += float(e.get_column("amount").sum() or 0.0); evt_cnt += e.height
+    m = inv.filter(pl.col("_contract_id").is_not_null() | pl.col("_sourcing_event_id").is_not_null())
+    mgd_amt += float(m.get_column("amount").sum() or 0.0); mgd_cnt += m.height
+    sm = (inv.with_columns(pl.col("_pr_source").fill_null("(non-PO / none)"))
+             .group_by("_pr_source").agg([pl.col("amount").sum().alias("amt"), pl.len().alias("cnt")]))
+    for r in sm.iter_rows(named=True):
+        src_amt[r["_pr_source"]] = src_amt.get(r["_pr_source"], 0.0) + float(r["amt"] or 0.0)
+        src_cnt[r["_pr_source"]] = src_cnt.get(r["_pr_source"], 0.0) + float(r["cnt"] or 0.0)
+
+if tot_amt > 0 and tot_cnt > 0:
+    def _pct(a, b):
+        return (a / b * 100.0) if b else 0.0
+    print(f"  Total invoice spend: ${tot_amt:,.0f}  across {int(tot_cnt):,} lines")
+    print(f"  Managed   : {_pct(mgd_amt, tot_amt):5.1f}% of $   |  {_pct(mgd_cnt, tot_cnt):5.1f}% of lines")
+    print(f"  Contracted: {_pct(con_amt, tot_amt):5.1f}% of $   |  {_pct(con_cnt, tot_cnt):5.1f}% of lines")
+    print(f"  Sourced   : {_pct(evt_amt, tot_amt):5.1f}% of $   |  {_pct(evt_cnt, tot_cnt):5.1f}% of lines")
+    print(f"  (managed $% should exceed managed line% — managed spend is a small count of large buys)")
+    print("  PR source mix (by $ / by line):")
+    for s in sorted(src_amt, key=lambda k: -src_amt[k]):
+        print(f"    {s:<22} {_pct(src_amt[s], tot_amt):5.1f}% / {_pct(src_cnt[s], tot_cnt):5.1f}%")
+    # Sanity (informational): expect all four channels + a non-PO bucket present, and
+    # managed coverage non-trivial in both directions.
+    if mgd_amt <= 0 or mgd_amt >= tot_amt:
+        warnings_list.append(f"Lineage: managed-spend $ share looks degenerate ({_pct(mgd_amt, tot_amt):.1f}%)")
+
+if bad_contract_refs or bad_event_refs:
+    breaches.append(
+        f"Lineage FK: {len(bad_contract_refs)} dangling contract_id, "
+        f"{len(bad_event_refs)} dangling sourcing_event_id "
+        f"(e.g. {sorted(bad_contract_refs)[:3]} {sorted(bad_event_refs)[:3]})"
+    )
+    print(f"  FAIL: {len(bad_contract_refs)} dangling contract refs, {len(bad_event_refs)} dangling event refs")
+else:
+    print("  OK   all contract_id / sourcing_event_id references resolve to registry rows")
 
 # COMMAND ----------
 # MAGIC %md ## Result

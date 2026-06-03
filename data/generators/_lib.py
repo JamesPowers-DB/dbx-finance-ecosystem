@@ -1,9 +1,9 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # _lib — shared helpers for Helios data generators
+# MAGIC # _lib — shared helpers for data generators
 # MAGIC
 # MAGIC Source via `%run ./_lib` from each generator notebook. Defines the
-# MAGIC deterministic seed scheme, Helios constants, the 30-category spend
+# MAGIC deterministic seed scheme, constants, the 30-category spend
 # MAGIC taxonomy used by the ML-classification training data, and anchor /
 # MAGIC macro / volume / widget helpers.
 
@@ -43,17 +43,17 @@ def mimesis_for(label: str) -> Generic:
 
 
 # COMMAND ----------
-# MAGIC %md ## Helios constants
+# MAGIC %md ## constants
 
 # COMMAND ----------
-HELIOS_SEGMENTS = [
-    {"code": "HAD", "name": "Helios Aerospace & Defense", "company_code": "1100", "mix": 0.371},
-    {"code": "HPA", "name": "Helios Process Automation", "company_code": "1200", "mix": 0.255},
-    {"code": "HSB", "name": "Helios Smart Buildings", "company_code": "1300", "mix": 0.164},
-    {"code": "HET", "name": "Helios Energy Transition", "company_code": "1400", "mix": 0.210},
+SEGMENTS = [
+    {"code": "AD", "name": "Aerospace & Defense", "company_code": "1100", "mix": 0.371},
+    {"code": "PA", "name": "Process Automation", "company_code": "1200", "mix": 0.255},
+    {"code": "SB", "name": "Smart Buildings", "company_code": "1300", "mix": 0.164},
+    {"code": "ET", "name": "Energy Transition", "company_code": "1400", "mix": 0.210},
 ]
-SEGMENT_CODES = [s["code"] for s in HELIOS_SEGMENTS]
-HELIOS_CORP_COMPANY_CODE = "1900"
+SEGMENT_CODES = [s["code"] for s in SEGMENTS]
+CORP_COMPANY_CODE = "1900"
 
 GEOGRAPHIES = [
     {"code": "NA", "name": "North America", "mix": 0.60},
@@ -87,82 +87,82 @@ def quarter_start(year: int, quarter: int) -> date:
 
 # COMMAND ----------
 SPEND_CATEGORIES: List[Dict] = [
-    {"code": "Aerospace_Components", "segment": "HAD", "matgroup": "1001",
+    {"code": "Aerospace_Components", "segment": "AD", "matgroup": "1001",
      "price_mu": 5.5, "price_sigma": 1.2, "qty_mu": 0.7, "qty_sigma": 0.9, "uom": "EA",
      "nouns": ["bracket", "fastener", "fitting", "actuator", "panel", "harness", "fairing", "spar", "rib", "longeron"],
      "adjs": ["titanium", "composite", "FAA-certified", "milspec", "high-strength", "machined", "anodized"],
-     "extras": ["P/N HAD-{:06d}", "fits 737NG", "fits A320 family", "fits Citation X", "AS9100 compliant"]},
-    {"code": "Hydraulic_Systems", "segment": "HAD", "matgroup": "1002",
+     "extras": ["P/N AD-{:06d}", "fits 737NG", "fits A320 family", "fits Citation X", "AS9100 compliant"]},
+    {"code": "Hydraulic_Systems", "segment": "AD", "matgroup": "1002",
      "price_mu": 6.5, "price_sigma": 1.0, "qty_mu": 0.5, "qty_sigma": 0.6, "uom": "EA",
      "nouns": ["pump", "actuator", "manifold", "reservoir", "line", "valve", "cylinder", "filter"],
      "adjs": ["3000psi", "5000psi", "high-pressure", "stainless", "MIL-spec", "redundant"],
      "extras": ["model HA-{:05d}", "for landing gear", "for flight controls", "TSO-approved"]},
-    {"code": "Composite_Materials", "segment": "HAD", "matgroup": "1003",
+    {"code": "Composite_Materials", "segment": "AD", "matgroup": "1003",
      "price_mu": 6.0, "price_sigma": 1.5, "qty_mu": 2.0, "qty_sigma": 1.0, "uom": "KG",
      "nouns": ["prepreg", "carbon-fiber laminate", "honeycomb core", "resin", "tape", "fabric"],
      "adjs": ["unidirectional", "twill weave", "epoxy", "BMI", "aerospace-grade"],
      "extras": ["roll {:04d}m", "lot {:06d}", "spec NCAMP", "RTM-suitable"]},
-    {"code": "MRO_Services_Aero", "segment": "HAD", "matgroup": "1004",
+    {"code": "MRO_Services_Aero", "segment": "AD", "matgroup": "1004",
      "price_mu": 8.5, "price_sigma": 0.9, "qty_mu": 0.0, "qty_sigma": 0.4, "uom": "HR",
      "nouns": ["inspection", "overhaul", "repair", "calibration", "certification", "field service"],
      "adjs": ["C-check", "A-check", "engine teardown", "NDT", "borescope"],
      "extras": ["aircraft N{:05d}", "engine S/N {:06d}", "FAA Part 145"]},
-    {"code": "Industrial_Sensors", "segment": "HPA", "matgroup": "2001",
+    {"code": "Industrial_Sensors", "segment": "PA", "matgroup": "2001",
      "price_mu": 4.5, "price_sigma": 1.1, "qty_mu": 1.5, "qty_sigma": 0.8, "uom": "EA",
      "nouns": ["pressure transmitter", "flow meter", "temperature sensor", "level switch", "vibration probe"],
      "adjs": ["4-20mA", "HART-enabled", "explosion-proof", "Ex-d", "IP67", "intrinsically safe"],
      "extras": ["model PT-{:05d}", "for refinery duty", "SIL-2 certified"]},
-    {"code": "Control_Systems", "segment": "HPA", "matgroup": "2002",
+    {"code": "Control_Systems", "segment": "PA", "matgroup": "2002",
      "price_mu": 7.0, "price_sigma": 1.2, "qty_mu": 0.3, "qty_sigma": 0.5, "uom": "EA",
      "nouns": ["PLC", "DCS controller", "HMI panel", "I/O module", "drive", "VFD"],
      "adjs": ["redundant", "rack-mount", "DIN rail", "industrial", "16-channel", "32-channel"],
      "extras": ["Profinet", "EtherNet/IP", "Modbus", "model DCS-{:05d}"]},
-    {"code": "Process_Software", "segment": "HPA", "matgroup": "2003",
+    {"code": "Process_Software", "segment": "PA", "matgroup": "2003",
      "price_mu": 8.0, "price_sigma": 1.0, "qty_mu": 0.0, "qty_sigma": 0.3, "uom": "LIC",
      "nouns": ["historian license", "OPC server license", "MES module", "asset management module", "analytics seat"],
      "adjs": ["annual", "perpetual", "site license", "enterprise", "developer"],
      "extras": ["{:04d} tags", "{:03d} users", "renewal", "new deployment"]},
-    {"code": "Calibration_Services", "segment": "HPA", "matgroup": "2004",
+    {"code": "Calibration_Services", "segment": "PA", "matgroup": "2004",
      "price_mu": 6.5, "price_sigma": 0.8, "qty_mu": 0.5, "qty_sigma": 0.5, "uom": "HR",
      "nouns": ["calibration", "loop check", "verification", "traceable calibration", "field calibration"],
      "adjs": ["NIST-traceable", "ISO 17025", "annual", "on-site"],
      "extras": ["{:03d} loops", "{:03d} instruments", "cert #{:06d}"]},
-    {"code": "HVAC_Equipment", "segment": "HSB", "matgroup": "3001",
+    {"code": "HVAC_Equipment", "segment": "SB", "matgroup": "3001",
      "price_mu": 7.5, "price_sigma": 1.1, "qty_mu": 0.5, "qty_sigma": 0.5, "uom": "EA",
      "nouns": ["chiller", "rooftop unit", "AHU", "VAV box", "heat pump", "boiler"],
      "adjs": ["high-efficiency", "VRF", "magnetic-bearing", "modular", "split-system"],
      "extras": ["{:03d} ton", "{:04d} CFM", "model {:05d}"]},
-    {"code": "Building_Controls", "segment": "HSB", "matgroup": "3002",
+    {"code": "Building_Controls", "segment": "SB", "matgroup": "3002",
      "price_mu": 5.0, "price_sigma": 1.0, "qty_mu": 1.2, "qty_sigma": 0.7, "uom": "EA",
      "nouns": ["thermostat", "DDC controller", "actuator", "damper", "zone valve", "occupancy sensor"],
      "adjs": ["BACnet", "wireless", "LonWorks", "smart", "PoE"],
      "extras": ["model T-{:04d}", "for new construction", "retrofit"]},
-    {"code": "Security_Systems", "segment": "HSB", "matgroup": "3003",
+    {"code": "Security_Systems", "segment": "SB", "matgroup": "3003",
      "price_mu": 5.5, "price_sigma": 1.0, "qty_mu": 1.0, "qty_sigma": 0.7, "uom": "EA",
      "nouns": ["access reader", "IP camera", "controller", "door strike", "motion sensor", "intercom"],
      "adjs": ["HID-compatible", "PoE+", "4K", "weatherproof", "vandal-resistant"],
      "extras": ["model CAM-{:04d}", "for parking", "for lobby"]},
-    {"code": "Fire_Suppression", "segment": "HSB", "matgroup": "3004",
+    {"code": "Fire_Suppression", "segment": "SB", "matgroup": "3004",
      "price_mu": 5.5, "price_sigma": 0.9, "qty_mu": 1.5, "qty_sigma": 0.8, "uom": "EA",
      "nouns": ["sprinkler head", "fire panel", "smoke detector", "horn-strobe", "pull station", "FM-200 cylinder"],
      "adjs": ["UL-listed", "FM-approved", "addressable", "intelligent"],
      "extras": ["NFPA 13 compliant", "for data hall", "for cleanroom"]},
-    {"code": "Solar_Components", "segment": "HET", "matgroup": "4001",
+    {"code": "Solar_Components", "segment": "ET", "matgroup": "4001",
      "price_mu": 6.0, "price_sigma": 1.3, "qty_mu": 1.8, "qty_sigma": 0.9, "uom": "EA",
      "nouns": ["PV module", "inverter", "combiner box", "tracker motor", "junction box"],
      "adjs": ["monocrystalline", "bifacial", "string-inverter", "1500V", "utility-scale"],
      "extras": ["{:03d}W", "model SM-{:05d}", "tier-1"]},
-    {"code": "Battery_Materials", "segment": "HET", "matgroup": "4002",
+    {"code": "Battery_Materials", "segment": "ET", "matgroup": "4002",
      "price_mu": 7.0, "price_sigma": 1.4, "qty_mu": 3.0, "qty_sigma": 1.0, "uom": "KG",
      "nouns": ["cathode powder", "anode powder", "separator", "electrolyte", "lithium carbonate"],
      "adjs": ["NMC811", "LFP", "battery-grade", "high-purity", "99.95%"],
      "extras": ["lot {:06d}", "spec sheet attached", "qualification batch"]},
-    {"code": "Power_Electronics", "segment": "HET", "matgroup": "4003",
+    {"code": "Power_Electronics", "segment": "ET", "matgroup": "4003",
      "price_mu": 6.5, "price_sigma": 1.1, "qty_mu": 0.8, "qty_sigma": 0.6, "uom": "EA",
      "nouns": ["IGBT module", "SiC MOSFET", "inverter stack", "DC link capacitor", "gate driver"],
      "adjs": ["1200V", "1700V", "SiC", "high-current", "automotive-grade"],
-     "extras": ["P/N HET-{:06d}", "AEC-Q101", "for traction inverter"]},
-    {"code": "Monitoring_Software", "segment": "HET", "matgroup": "4004",
+     "extras": ["P/N ET-{:06d}", "AEC-Q101", "for traction inverter"]},
+    {"code": "Monitoring_Software", "segment": "ET", "matgroup": "4004",
      "price_mu": 7.5, "price_sigma": 1.0, "qty_mu": 0.0, "qty_sigma": 0.3, "uom": "LIC",
      "nouns": ["SCADA license", "performance monitoring seat", "predictive maintenance module"],
      "adjs": ["annual", "site license", "cloud-hosted"],
@@ -521,9 +521,90 @@ def pool_addresses(g: Generic, pool_size: int = 500) -> List[Dict]:
 
 
 # COMMAND ----------
+# MAGIC %md ## Supplier name synthesis (fabricated, segment-flavored, unique)
+# MAGIC
+# MAGIC Supplier names are composed `<prefix> <domain> <suffix>` rather than drawn
+# MAGIC from Mimesis `finance.company()`. Two reasons:
+# MAGIC   1. **Uniqueness.** Mimesis' EN company corpus is < 1k names, so any pool
+# MAGIC      large enough for ~3k suppliers collided heavily — one name mapped to
+# MAGIC      several supplier_ids, which broke name-based lookups downstream.
+# MAGIC   2. **Realism.** Mimesis emits real consumer brands (pharmacies, casinos)
+# MAGIC      with no industrial/category affinity, so a components search surfaced
+# MAGIC      nonsensical suppliers. The `domain` token is keyed to the supplier's
+# MAGIC      segment affinity, so the name reads like an industrial supplier that
+# MAGIC      plausibly serves the categories it's invoiced in.
+# MAGIC
+# MAGIC The combo space (~120 prefixes × ~6 domains × ~12 suffixes per segment ≈ 8.6k)
+# MAGIC dwarfs the per-segment supplier count, so deterministic rejection sampling
+# MAGIC against a global `used` set yields unique names without a numeric crutch.
+
+# COMMAND ----------
+SUPPLIER_NAME_PREFIXES: List[str] = [
+    "Apex", "Meridian", "Vanguard", "Summit", "Atlas", "Beacon", "Voltaic", "Lumen",
+    "Terra", "Northbridge", "Cornerstone", "Pinnacle", "Cardinal", "Helix", "Vantage",
+    "Axiom", "Sentinel", "Orion", "Pioneer", "Keystone", "Granite", "Ironclad", "Cobalt",
+    "Crestline", "Vertex", "Equinox", "Polaris", "Aegis", "Monarch", "Sterling", "Redwood",
+    "Bluefin", "Copperline", "Anchor", "Bedrock", "Brightline", "Caliber", "Citadel",
+    "Concord", "Dominion", "Eastgate", "Elevon", "Everest", "Fairmont", "Forge", "Fulcrum",
+    "Gateway", "Halcyon", "Harbor", "Highpoint", "Horizon", "Ironwood", "Juniper", "Lakeside",
+    "Lattice", "Legacy", "Liberty", "Lodestar", "Magnolia", "Mainline", "Maxwell", "Mercury",
+    "Midland", "Momentum", "Nexus", "Nimbus", "Northstar", "Oakridge", "Optima", "Paramount",
+    "Patriot", "Peregrine", "Precision", "Premier", "Providence", "Quanta", "Radian", "Rampart",
+    "Regent", "Reliant", "Ridgeline", "Rivergate", "Sable", "Sequoia", "Silverline", "Solstice",
+    "Spectra", "Stonebridge", "Stratos", "Tempest", "Titan", "Trailhead", "Triton", "Tundra",
+    "Unity", "Vela", "Veritas", "Vista", "Westfield", "Whitestone", "Zenith", "Zephyr",
+    "Allied", "Ascent", "Banner", "Birchwood", "Cascade", "Clarion", "Crown", "Delta",
+    "Emerald", "Falcon", "Frontier", "Galleon", "Hallmark", "Ironside", "Kestrel", "Lakemont",
+    "Marquis", "Northwind", "Pacific", "Sierra",
+]
+# Domain token keyed to the supplier's primary segment affinity. None of these
+# end in a legal/structure word, so they never collide with the suffix.
+SUPPLIER_DOMAIN_BY_SEGMENT: Dict[str, List[str]] = {
+    "AD":    ["Aerospace", "Defense", "Aerostructures", "Avionics", "Aeronautics", "Aero"],
+    "PA":    ["Process", "Automation", "Instrumentation", "Process Controls", "Industrial Automation", "Controls"],
+    "SB":    ["Building", "Facility", "Building Controls", "Smart Building", "Mechanical", "Building Automation"],
+    "ET":    ["Energy", "Power", "Renewables", "Clean Energy", "Power Electronics", "Grid"],
+    "CROSS": ["Industrial", "Commercial", "Logistics", "Materials", "Supply", "Services"],
+}
+SUPPLIER_NAME_SUFFIXES: List[str] = [
+    "Inc.", "LLC", "Group", "Systems", "Industries", "Corp.",
+    "Technologies", "Partners", "Holdings", "Co.", "Solutions", "International",
+]
+
+
+def make_supplier_names(rng: np.random.Generator, segment_affinity: np.ndarray) -> np.ndarray:
+    """Assign each supplier a unique, segment-flavored fabricated company name.
+
+    `segment_affinity` is the per-supplier industry segment (AD/PA/SB/ET/CROSS).
+    Names are `<prefix> <segment-domain> <suffix>`; a global `used` set guarantees
+    1:1 uniqueness. Deterministic for a given seeded `rng`.
+    """
+    used: set = set()
+    out: List[str] = []
+    n_prefix = len(SUPPLIER_NAME_PREFIXES)
+    n_suffix = len(SUPPLIER_NAME_SUFFIXES)
+    for seg in segment_affinity:
+        domains = SUPPLIER_DOMAIN_BY_SEGMENT.get(str(seg), SUPPLIER_DOMAIN_BY_SEGMENT["CROSS"])
+        name = None
+        for _ in range(2000):
+            p = SUPPLIER_NAME_PREFIXES[int(rng.integers(0, n_prefix))]
+            d = domains[int(rng.integers(0, len(domains)))]
+            sfx = SUPPLIER_NAME_SUFFIXES[int(rng.integers(0, n_suffix))]
+            cand = f"{p} {d} {sfx}"
+            if cand not in used:
+                name = cand
+                break
+        if name is None:  # combo space exhausted (won't happen at demo scale) — force-unique
+            name = f"{p} {d} {sfx} {len(out)}"
+        used.add(name)
+        out.append(name)
+    return np.array(out, dtype=object)
+
+
+# COMMAND ----------
 # MAGIC %md ## Geography
 # MAGIC
-# MAGIC Country code → Helios geography bucket. The reference filings' literal
+# MAGIC Country code → geography bucket. The reference filings' literal
 # MAGIC "US / Europe / Other International" phrasing is intentionally avoided.
 
 # COMMAND ----------
@@ -679,3 +760,66 @@ NON_PO_INVOICE_RATE = 0.10     # 10% of invoices have no upstream PO (direct vou
 PR_STATUS_RELEASED = "B"   # Released (will become a PO)
 PR_STATUS_CANCELLED = "L"  # Cancelled
 PR_STATUS_OPEN = "N"       # Open / not yet processed
+
+
+# COMMAND ----------
+# MAGIC %md ## Procurement document lineage — sourcing & contract attribution
+# MAGIC
+# MAGIC Real procure-to-pay stamps an origination channel on the PR and, when the
+# MAGIC buy crosses governance thresholds, links it to a contract and/or a
+# MAGIC competitive sourcing event. Those references ride PR → PO → invoice, so
+# MAGIC "is this spend managed?" is answered by document lineage (contract_id /
+# MAGIC sourcing_event_id present on the invoice line), not a supplier-level
+# MAGIC heuristic. Compliance is deliberately imperfect — the gap between
+# MAGIC "required" and "present" is the off-contract / maverick-spend story.
+# MAGIC
+# MAGIC The compliance probabilities below are the primary tuning knob for the
+# MAGIC headline Managed-Spend rate (target ≈ 50% of addressable spend *by dollars*,
+# MAGIC much lower by invoice count — managed spend is a small count of large buys).
+
+# COMMAND ----------
+# Governance thresholds on PR total value (USD). Soft, not hard cliffs.
+CONTRACT_REQUIRED_THRESHOLD = 50_000          # buys above this should sit under a contract
+SOURCING_EVENT_REQUIRED_THRESHOLD = 500_000   # buys above this should be competitively sourced
+# Each PR's effective threshold is scaled by lognormal(0, sigma) so the requirement
+# boundary is fuzzy rather than a clean step at $50k / $500k.
+THRESHOLD_JITTER_SIGMA = 0.25
+
+# PR origination channels. All PRs land in Ariba; this is where they came from.
+PR_SOURCE_CATALOG = "Catalog"
+PR_SOURCE_PORTAL = "AribaPortal"
+PR_SOURCE_MANUAL = "ManualSubmission"
+PR_SOURCE_AGENT = "ProcurementAgent"
+PR_SOURCES = [PR_SOURCE_CATALOG, PR_SOURCE_PORTAL, PR_SOURCE_MANUAL, PR_SOURCE_AGENT]
+
+# Base mix before per-PR tilts (sums to 1.0). Portal is the default guided-buying path.
+PR_SOURCE_BASE_WEIGHTS = {
+    PR_SOURCE_CATALOG: 0.30,
+    PR_SOURCE_PORTAL:  0.40,
+    PR_SOURCE_MANUAL:  0.22,
+    PR_SOURCE_AGENT:   0.08,
+}
+
+# Per-source compliance behaviour. `*_when_required` = P(required doc actually present);
+# `contract_overcomply` = P(contract present even when NOT required) — catalog items are
+# pre-negotiated, so catalog spend is contract-backed regardless of size.
+SOURCE_COMPLIANCE = {
+    PR_SOURCE_CATALOG: {"contract_when_required": 0.92, "event_when_required": 0.55, "contract_overcomply": 0.80},
+    PR_SOURCE_PORTAL:  {"contract_when_required": 0.86, "event_when_required": 0.82, "contract_overcomply": 0.10},
+    PR_SOURCE_MANUAL:  {"contract_when_required": 0.45, "event_when_required": 0.35, "contract_overcomply": 0.04},
+    PR_SOURCE_AGENT:   {"contract_when_required": 0.90, "event_when_required": 0.70, "contract_overcomply": 0.30},
+}
+
+# Routine, low-ticket categories — what Catalog and ProcurementAgent buy. Used to
+# tilt source assignment (routine → more catalog/agent) and to bound the agent
+# channel to routine goods/services only.
+ROUTINE_CATEGORIES = {
+    "Office_Supplies", "Facilities", "Travel", "Marketing", "Training",
+    "MRO_Services_Aero", "Calibration_Services",
+    "IT_Services", "Telecommunications", "Cloud_Infrastructure",
+    "Monitoring_Software", "Logistics_Freight",
+}
+
+# Chaos knobs.
+LINEAGE_EXCEPTION_RATE = 0.05   # global coin-flip that flips an intended link decision
+LINE_LINK_DROPOUT_RATE = 0.08   # a linked PR may leave a tail line off-contract (mixed PR)

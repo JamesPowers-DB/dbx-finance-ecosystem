@@ -21,10 +21,11 @@ resources:
         - file: { path: ../pipelines/spend/silver/invoice_ap.sql }
         - file: { path: ../pipelines/spend/silver/sourcing_event.sql }
         - file: { path: ../pipelines/spend/silver/invoice_classification.sql }
-        # Gold: PR / PO / invoices (the ML-classified spend surface)
+        # Gold: PR / PO / invoices (the ML-classified spend surface) + cost savings
         - file: { path: ../pipelines/spend/gold/fact_purchase_requests.sql }
         - file: { path: ../pipelines/spend/gold/fact_purchase_orders.sql }
         - file: { path: ../pipelines/spend/gold/fact_invoices.sql }
+        - file: { path: ../pipelines/spend/gold/fact_cost_savings.sql }
 
         # -------------------------------------------------------------- revenue
         - file: { path: ../pipelines/revenue/bronze/fusion_ar.sql }

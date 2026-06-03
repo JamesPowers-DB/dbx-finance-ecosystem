@@ -1,7 +1,7 @@
 -- ============================================================================
 -- LEGAL — contract exploration queries (inbound + outbound)
 -- ============================================================================
-USE CATALOG horizontal_finance_dev;
+USE CATALOG ${var.catalog};
 
 -- Section 1 ------------------------------------------------------------------
 -- Active commercial contracts (outbound / revenue-side) by segment.
@@ -13,7 +13,7 @@ SELECT
   ROUND(AVG(effective_contract_value) / 1e3, 1)       AS avg_value_k,
   MIN(start_date)                                     AS earliest_start,
   MAX(end_date)                                       AS latest_end
-FROM silver.contract_outbound
+FROM ${var.schema_silver}.contract_outbound
 GROUP BY ALL
 ORDER BY segment_code, status;
 
@@ -28,7 +28,7 @@ SELECT
   ROUND(SUM(actual_spend_to_date) / 1e6, 2)           AS actual_mm,
   ROUND(100.0 * SUM(actual_spend_to_date) /
                 NULLIF(SUM(total_committed_spend), 0), 1) AS utilization_pct
-FROM silver.contract_inbound
+FROM ${var.schema_silver}.contract_inbound
 GROUP BY ALL
 ORDER BY contract_type, region;
 
@@ -50,7 +50,7 @@ SELECT
   segment_code,
   COUNT(*)                              AS contracts_expiring,
   ROUND(SUM(effective_contract_value) / 1e6, 2) AS expiring_value_mm
-FROM silver.contract_outbound
+FROM ${var.schema_silver}.contract_outbound
 WHERE end_date BETWEEN current_date() AND current_date() + INTERVAL 12 MONTH
 GROUP BY ALL
 ORDER BY expiration_month, segment_code;
@@ -62,7 +62,7 @@ SELECT
   COUNT(*)                                            AS contracts,
   ROUND(SUM(effective_contract_value) / 1e6, 2)       AS total_value_mm,
   ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1)  AS pct_of_contracts
-FROM silver.contract_outbound
+FROM ${var.schema_silver}.contract_outbound
 GROUP BY commercial_terms
 ORDER BY contracts DESC;
 
@@ -76,8 +76,8 @@ SELECT
   fi.fiscal_quarter,
   COUNT(*)                                    AS invoice_lines,
   ROUND(SUM(fi.amount) / 1e6, 2)              AS off_contract_mm
-FROM gold.fact_invoices fi
-LEFT JOIN silver.contract_inbound ci
+FROM ${var.schema_gold}.fact_invoices fi
+LEFT JOIN ${var.schema_silver}.contract_inbound ci
   ON fi.supplier_id = ci.supplier_id
  AND ci.status = 'Active'
 WHERE ci.contract_workspace_id IS NULL

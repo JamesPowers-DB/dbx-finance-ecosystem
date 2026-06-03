@@ -42,7 +42,11 @@ SELECT
   -- Demo-only ground truth (2-tier). In production this column wouldn't exist on PR
   -- exports — the customer would assemble a manually-curated training set instead.
   pr.true_category_primary,
-  pr.true_category_secondary
+  pr.true_category_secondary,
+  -- Procurement document lineage: origination channel + contract / sourcing-event links.
+  pr.pr_source,
+  pr.contract_id,
+  pr.sourcing_event_id
 FROM ${schema_silver}.purchase_request pr
 LEFT JOIN ${schema_gold}.dim_supplier s
   ON pr.intended_supplier_id = s.supplier_id;

@@ -2,7 +2,7 @@
 -- GOLD — dim_employees (SCD Type 2)
 -- ============================================================================
 -- One row per (employee × state change). Renames Workday-shaped bronze columns
--- to Helios-canonical names, applies type casts, and derives the quarterly
+-- to -canonical names, applies type casts, and derives the quarterly
 -- loaded cost (annual base × 1.30 / 4) used by fact_emp_quarterly_cost.
 --
 -- Query pattern for a snapshot at a given date D:

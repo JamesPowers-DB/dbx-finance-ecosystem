@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "resources": [
+    {
+      "type": "dashboard",
+      "name": "Strategic Spend Analytics \u2014 Spend Visibility",
+      "id": "01f15b839e58197081e11b299cdaba4a",
+      "created_at": "2026-05-29T17:27:08.546309+00:00",
+      "updated_at": "2026-05-29T17:53:28.757619+00:00",
+      "url": "https://e2-demo-field-eng.cloud.databricks.com/sql/dashboardsv3/01f15b839e58197081e11b299cdaba4a"
+    }
+  ]
+}

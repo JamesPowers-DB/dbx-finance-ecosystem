@@ -1,7 +1,7 @@
 -- ============================================================================
 -- ACCOUNTING — exploration queries
 -- ============================================================================
-USE CATALOG horizontal_finance_dev;
+USE CATALOG ${var.catalog};
 
 -- Section 1 ------------------------------------------------------------------
 -- Journal entry volume by source per period. Payables and Receivables
@@ -10,7 +10,7 @@ SELECT
   period_name,
   je_source,
   COUNT(*)                          AS je_headers
-FROM silver.gl_journal_header
+FROM ${var.schema_silver}.gl_journal_header
 GROUP BY ALL
 ORDER BY period_name, je_source;
 
@@ -23,7 +23,7 @@ SELECT
   MAX(ABS(net_dr_cr))                                     AS worst_imbalance
 FROM (
   SELECT je_header_id, SUM(accounted_dr - accounted_cr) AS net_dr_cr
-  FROM silver.gl_journal_line
+  FROM ${var.schema_silver}.gl_journal_line
   GROUP BY je_header_id
 );
 
@@ -31,7 +31,7 @@ FROM (
 -- Trial balance summary for the most recent period × segment × account type.
 -- Use this to sanity-check the GL totals vs. spend / revenue facts.
 WITH latest AS (
-  SELECT MAX(period_name) AS p FROM silver.gl_journal_header
+  SELECT MAX(period_name) AS p FROM ${var.schema_silver}.gl_journal_header
 )
 SELECT
   fge.period_name,
@@ -41,7 +41,7 @@ SELECT
   ROUND(SUM(fge.accounted_dr) / 1e6, 2)     AS dr_mm,
   ROUND(SUM(fge.accounted_cr) / 1e6, 2)     AS cr_mm,
   ROUND(SUM(fge.net_amount) / 1e6, 2)       AS net_mm
-FROM gold.fact_gl_entries fge, latest
+FROM ${var.schema_gold}.fact_gl_entries fge, latest
 WHERE fge.period_name = latest.p
   AND fge.account_type IS NOT NULL
 GROUP BY ALL
@@ -55,7 +55,7 @@ SELECT
   COUNT(*)                            AS code_combinations,
   COUNT(DISTINCT cost_center_code)    AS cost_centers,
   COUNT(DISTINCT natural_account_code) AS natural_accounts
-FROM silver.coa_account
+FROM ${var.schema_silver}.coa_account
 WHERE enabled_flag = 'Y'
 GROUP BY ALL
 ORDER BY segment_code, account_type;
@@ -69,7 +69,7 @@ SELECT
   ROUND(SUM(period_dr) / 1e6, 2)      AS period_dr_mm,
   ROUND(SUM(period_cr) / 1e6, 2)      AS period_cr_mm,
   ROUND(SUM(period_net) / 1e6, 2)     AS period_net_mm
-FROM gold.fact_trial_balance
+FROM ${var.schema_gold}.fact_trial_balance
 WHERE account_type IS NOT NULL
 GROUP BY account_type
 ORDER BY ABS(SUM(period_net)) DESC;
@@ -82,8 +82,8 @@ SELECT
   da.account_type,
   COUNT(*)                                      AS entries,
   ROUND(SUM(fge.accounted_dr) / 1e6, 2)         AS total_dr_mm
-FROM gold.fact_gl_entries fge
-LEFT JOIN gold.dim_account da
+FROM ${var.schema_gold}.fact_gl_entries fge
+LEFT JOIN ${var.schema_gold}.dim_account da
   ON fge.natural_account_code = da.account_code
 GROUP BY ALL
 ORDER BY entries DESC

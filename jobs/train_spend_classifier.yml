@@ -26,6 +26,11 @@ resources:
           spec:
             client: "2"
             dependencies:
+              # NOTE: a bare `--requirement <file>` does NOT change the serverless
+              # environment fingerprint when the file's CONTENTS change, so editing
+              # requirements-ml.txt alone reuses a stale cached env. Pin new deps
+              # directly here (changes the spec → forces an env rebuild).
+              - optuna>=3.6,<5.0
               - --requirement /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}/files/requirements.txt
               - --requirement /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}/files/requirements-ml.txt
       tasks:
@@ -54,6 +59,8 @@ resources:
               schema_ml: ${var.schema_ml}
               model_name: spend_classifier
               model_alias: challenger
+              hpo_trials: "25"
+              hpo_sample_rows: "60000"
 
         - task_key: train_embedding
           environment_key: ml_train

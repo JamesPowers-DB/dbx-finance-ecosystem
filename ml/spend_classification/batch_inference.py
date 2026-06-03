@@ -65,7 +65,6 @@ source_sdf = spark.sql(f"""
     SELECT
       fi.invoice_line_id,
       fi.line_description,
-      fi.supplier_id,
       fi.segment_code,
       fi.payment_terms,
       fi.currency,
@@ -77,16 +76,15 @@ source_sdf = spark.sql(f"""
       LN(1 + GREATEST(CAST(fi.quantity   AS DOUBLE), 0.0)) AS log_quantity,
       LN(1 + GREATEST(CAST(fi.unit_price AS DOUBLE), 0.0)) AS log_unit_price,
       COALESCE(CAST(fi.supplier_maverick_propensity AS DOUBLE), 0.0)
-                                                          AS supplier_maverick_propensity,
-      COALESCE(ds.category_primary, '__NA__')             AS category_primary_hint
+                                                          AS supplier_maverick_propensity
     FROM `{catalog}`.`{schema_gold}`.fact_invoices fi
-    LEFT JOIN `{catalog}`.`{schema_gold}`.dim_supplier ds USING (supplier_id)
 """)
 
 # Defensive: replace null categoricals with the same sentinel the training pipeline saw.
-CAT_COLS = ["supplier_id", "segment_code", "payment_terms", "currency",
-            "supplier_region", "gl_account", "direct_indirect",
-            "addressability", "category_primary_hint"]
+# Keep in lockstep with train_baseline.py — leaky supplier_id + category_primary_hint dropped
+# (the dim_supplier join is no longer needed at inference).
+CAT_COLS = ["segment_code", "payment_terms", "currency",
+            "supplier_region", "gl_account", "direct_indirect", "addressability"]
 TEXT_COL = "line_description"
 NUM_COLS = ["log_amount", "log_quantity", "log_unit_price",
             "supplier_maverick_propensity"]

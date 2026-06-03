@@ -3,8 +3,8 @@
 # MAGIC # Generator: seed `_meta.dim_period_anchors`
 # MAGIC
 # MAGIC Hand-curated rows spanning FY2023 → Q1 2026 (FY consolidated + quarterly).
-# MAGIC Values are at the **Helios 1/10 scale** of the reference industrial — 1/10
-# MAGIC of the public filings' reported shape, with Helios segment names and
+# MAGIC Values are at the **1/10 scale** of the reference industrial — 1/10
+# MAGIC of the public filings' reported shape, with segment names and
 # MAGIC NA/EMEA/APAC/LATAM geographies. Plausibly "real industrial conglomerate
 # MAGIC at ~$3.9B FY revenue."
 # MAGIC
@@ -31,11 +31,11 @@ print(f"Seeding {catalog}.{schema_meta}.dim_period_anchors")
 # MAGIC %md ## Anchor values
 # MAGIC
 # MAGIC Top-level CONSOL totals from reference 10-K/10-Q scaled 1/10. Segment
-# MAGIC splits use the mix preserved in `_lib.HELIOS_SEGMENTS` plus segment
-# MAGIC operating-margin assumptions (HAD ~28%, HPA ~21%, HSB ~24%, HET ~24%).
+# MAGIC splits use the mix preserved in `_lib.SEGMENTS` plus segment
+# MAGIC operating-margin assumptions (AD ~28%, PA ~21%, SB ~24%, ET ~24%).
 
 # COMMAND ----------
-SEGMENT_OP_MARGIN = {"HAD": 0.28, "HPA": 0.21, "HSB": 0.24, "HET": 0.24}
+SEGMENT_OP_MARGIN = {"AD": 0.28, "PA": 0.21, "SB": 0.24, "ET": 0.24}
 
 CONSOL_PERIODS = [
     # (period_type, fy, fq, period_end, revenue, cogs, sga, rd, op_inc, int_exp, tax, ni,
@@ -93,7 +93,7 @@ for period_type, fy, fq, period_end, rev, cogs, sga, rd, opinc, intexp, tax, ni,
         "fiscal_quarter": fq,
         "period_end_date": period_end,
         "segment_code": "CONSOL",
-        "segment_name": "Helios Industrial Group (Consolidated)",
+        "segment_name": "Consolidated",
         "revenue": rev, "cogs": cogs, "gross_profit": gp,
         "sga": sga, "rd": rd, "operating_income": opinc,
         "interest_expense": intexp, "tax_provision": tax, "net_income": ni,
@@ -106,10 +106,10 @@ for period_type, fy, fq, period_end, rev, cogs, sga, rd, opinc, intexp, tax, ni,
         "human_reviewed_by": "SEED",
         "human_reviewed_at": datetime(2026, 5, 10, 0, 0, 0),
         "confidence_score": 1.0,
-        "notes": "Hand-seeded baseline. Helios scale = reference filings 1/10; segment names and geographies anonymized.",
+        "notes": "Hand-seeded baseline. scale = reference filings 1/10; segment names and geographies anonymized.",
     })
 
-    for seg in HELIOS_SEGMENTS:
+    for seg in SEGMENTS:
         seg_rev = round(rev * seg["mix"], 1)
         seg_op = round(seg_rev * SEGMENT_OP_MARGIN[seg["code"]], 1)
         # Allocate COGS/SGA/RD by segment using consolidated proportions
@@ -138,7 +138,7 @@ for period_type, fy, fq, period_end, rev, cogs, sga, rd, opinc, intexp, tax, ni,
             "human_reviewed_by": "SEED",
             "human_reviewed_at": datetime(2026, 5, 10, 0, 0, 0),
             "confidence_score": 1.0,
-            "notes": "Segment split = mix × CONSOL with HAD/HPA/HSB/HET op-margin assumptions.",
+            "notes": "Segment split = mix × CONSOL with AD/PA/SB/ET op-margin assumptions.",
         })
 
 df = pl.DataFrame(rows)

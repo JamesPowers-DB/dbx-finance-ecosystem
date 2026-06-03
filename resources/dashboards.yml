@@ -1,0 +1,18 @@
+resources:
+  dashboards:
+    spend_visibility:
+      display_name: "Strategic Spend Analytics — Spend Visibility (${bundle.target})"
+      # Serialized AI/BI (Lakeview) dashboard. Storytelling flow over the governed
+      # metric views: KPIs → trend → drivers (PR source / managed-status) →
+      # lifecycle funnel + highest-leverage suppliers. The primary Databricks-first
+      # consumption surface for the spend-visibility outcome.
+      file_path: ../dashboards/spend_visibility.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      parent_path: ${workspace.file_path}/dashboards
+      # Default catalog/schema for every dataset whose query uses UNQUALIFIED
+      # table names (e.g. `FROM mv_spend`). This is what makes the dashboard
+      # portable across dev/prod without hardcoding horizontal_finance_dev.gold
+      # in the .lvdash.json. Requires CLI v0.281.0+. (var.catalog = horizontal_finance_dev
+      # in dev / horizontal_finance in prod.)
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${var.schema_gold}

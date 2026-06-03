@@ -1,0 +1,35 @@
+resources:
+  apps:
+    spend_analytics:
+      name: spend-analytics-${bundle.target}
+      description: >
+        Strategic Spend Analytics — contract burn-down, supplier performance,
+        cost savings tracking, procurement chatbot, and spend labeling monitor.
+        Reads from Unity Catalog gold/silver/ml tables via OBO auth. App state
+        (chatbot history + manual avoidance entries) persists in Lakebase Postgres.
+      source_code_path: ${workspace.file_path}/apps/spend-analytics
+
+      resources:
+        - name: warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+
+        # NOTE on Lakebase access: the app SERVICE PRINCIPAL connects to the
+        # autoscale project `finance-horizontals` and is granted via a Postgres
+        # ROLE on the branch (added in the Lakebase UI / `postgres create-role`),
+        # NOT an app resource binding. The `postgres` binding's `database` field
+        # only resolves control-plane-registered databases; `bizapps-spend` was
+        # created via SQL, so the binding 404s on it. Connection auth is handled
+        # in lakebase._conninfo (SP if its creds are present, else OBO caller).
+
+      # OBO scopes. `sql` runs UC warehouse queries as the logged-in user.
+      # `postgres` lets the forwarded user token mint a Lakebase credential —
+      # required for the OBO fallback in lakebase._conninfo (this app runtime
+      # does not expose SP M2M creds to the SDK, so Lakebase connects as the
+      # calling user, who must have a Lakebase role).
+      user_api_scopes:
+        - sql
+        - postgres
+        - serving.serving-endpoints
+        - dashboards.genie

@@ -17,7 +17,7 @@ SELECT
   c.contract_id,
   c.contract_number,
   c.customer_id,
-  c.helios_entity_segment             AS segment_code,
+  c.entity_segment             AS segment_code,
   CAST(c.signed_date AS DATE)         AS signed_date,
   CAST(c.start_date AS DATE)          AS start_date,
   CAST(c.end_date AS DATE)            AS end_date,

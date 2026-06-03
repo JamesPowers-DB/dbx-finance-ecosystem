@@ -6,7 +6,7 @@
 --
 -- Workday-shaped column names: worker_id, worker_name_*, organization_id,
 -- compensation_grade, effective_date / effective_through. Silver/gold rename
--- to Helios-canonical (employee_id, segment_code, seniority_band, …).
+-- to -canonical (employee_id, segment_code, seniority_band, …).
 -- ============================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW ${schema_bronze_workday}.workers

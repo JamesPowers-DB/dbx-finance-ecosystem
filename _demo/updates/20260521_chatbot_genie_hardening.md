@@ -1,0 +1,7 @@
+# 2026-05-21 — Chatbot hardening + Genie SQL/feedback
+
+- **Chatbot `TypeError: network error` fixed** — Root cause: SP M2M OIDC token fetch (`_get_sp_token`) raised `HTTPError 401`, which escaped the async generator and aborted the SSE stream mid-response. Fix: `_get_sp_token` now returns `None` on any error (never raises); `_stream_response` and `ask_genie` fall back to caller OBO token (`serving.serving-endpoints` + `dashboards.genie` scopes). App recreated with fresh SP (`56556626-a002-403d-b03e-925d38b8d763`) — old SP had broken client_credentials grant.
+- **`node_modules` excluded from bundle sync** — Added `sync.exclude` for `apps/*/frontend/node_modules/**`, `.venv`, `__pycache__` in `databricks.yml`. App was exceeding the 2000-file deployment limit (2821 files incl. node_modules). Now 77 files.
+- **SP UC + Genie permissions** — New app SP granted: `USE_CATALOG` + `USE_SCHEMA` (gold, silver) + `SELECT` on 11 tables in `horizontal_finance_dev`; `CAN_EDIT` on Genie Space `01f154f176351736be32d20533d9f257`.
+- **Tool card collapsible args** — Chatbot tool cards collapsed by default; `chev_r`/`chev_d` toggles args JSON. `expandedTools` state resets per message.
+- **Genie SQL display + thumbs feedback** — `run_genie_query` returns `conv_id`, `msg_id`, `space_id` alongside `sql` + `row_count`. Frontend parses `tool_result` SSE events for `ask_genie` and renders SQL block + 👍/👎 inside the expanded tool card. Thumbs call `POST /api/chat/genie-feedback` → `PUT /api/2.0/genie/…/feedback` (OBO token).

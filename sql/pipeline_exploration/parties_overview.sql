@@ -1,7 +1,7 @@
 -- ============================================================================
 -- PARTIES — supplier + customer exploration queries
 -- ============================================================================
-USE CATALOG horizontal_finance_dev;
+USE CATALOG ${var.catalog};
 
 -- Section 1 ------------------------------------------------------------------
 -- Supplier counts by region × primary spend category.
@@ -10,7 +10,7 @@ SELECT
   category_primary,
   COUNT(*)                  AS suppliers,
   ROUND(AVG(maverick_propensity), 3) AS avg_maverick
-FROM gold.dim_supplier
+FROM ${var.schema_gold}.dim_supplier
 WHERE category_primary IS NOT NULL
 GROUP BY ALL
 ORDER BY region, suppliers DESC;
@@ -28,7 +28,7 @@ SELECT
   END                       AS maverick_bin,
   COUNT(*)                  AS suppliers,
   ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS pct
-FROM gold.dim_supplier
+FROM ${var.schema_gold}.dim_supplier
 WHERE maverick_propensity IS NOT NULL
 GROUP BY ALL
 ORDER BY maverick_bin;
@@ -45,8 +45,8 @@ SELECT
   ROUND(SUM(fi.amount) / 1e6, 2)           AS spend_mm,
   COUNT(DISTINCT fi.invoice_id)            AS invoices,
   COUNT(DISTINCT (fi.fiscal_year * 10 + fi.fiscal_quarter)) AS active_quarters
-FROM gold.fact_invoices fi
-LEFT JOIN gold.dim_supplier s USING (supplier_id)
+FROM ${var.schema_gold}.fact_invoices fi
+LEFT JOIN ${var.schema_gold}.dim_supplier s USING (supplier_id)
 GROUP BY ALL
 ORDER BY spend_mm DESC
 LIMIT 25;
@@ -57,7 +57,7 @@ SELECT
   region,
   primary_segment_code,
   COUNT(*)                  AS customers
-FROM gold.dim_customer
+FROM ${var.schema_gold}.dim_customer
 WHERE primary_segment_code IS NOT NULL
 GROUP BY ALL
 ORDER BY region, customers DESC;
@@ -72,8 +72,8 @@ SELECT
   ROUND(SUM(fr.amount) / 1e6, 2)         AS revenue_mm,
   COUNT(DISTINCT fr.contract_id)         AS contracts,
   COUNT(DISTINCT (fr.fiscal_year * 10 + fr.fiscal_quarter)) AS active_quarters
-FROM gold.fact_revenue fr
-LEFT JOIN gold.dim_customer c USING (customer_id)
+FROM ${var.schema_gold}.fact_revenue fr
+LEFT JOIN ${var.schema_gold}.dim_customer c USING (customer_id)
 GROUP BY ALL
 ORDER BY revenue_mm DESC
 LIMIT 25;

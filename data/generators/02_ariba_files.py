@@ -72,9 +72,6 @@ N_SUPPLIERS = 3000
 
 def build_supplier_master() -> pl.DataFrame:
     rng = rng_for("ariba:lfa1")
-    g = mimesis_for("ariba:lfa1")
-    name_pool = pool_names(g, pool_size=1500)
-    sup_pick = rng.integers(0, len(name_pool), size=N_SUPPLIERS)
 
     countries = list(COUNTRY_WEIGHTS.keys())
     cw = np.array([COUNTRY_WEIGHTS[c] for c in countries])
@@ -87,9 +84,14 @@ def build_supplier_master() -> pl.DataFrame:
     ersda = (today_np - days_ago.astype("timedelta64[D]")).astype("datetime64[D]")
 
     seg_affinity = rng.choice(
-        ["HAD", "HPA", "HSB", "HET", "CROSS"],
+        ["AD", "PA", "SB", "ET", "CROSS"],
         size=N_SUPPLIERS, p=[0.25, 0.25, 0.15, 0.15, 0.20],
     )
+
+    # Fabricated, unique, segment-flavored supplier names (see _lib.make_supplier_names).
+    # Keyed to seg_affinity so a supplier's name reads consistently with the
+    # categories it primarily buys (cat_pri below is drawn from the same segment).
+    supplier_names = make_supplier_names(rng, seg_affinity)
 
     cat_pri = np.empty(N_SUPPLIERS, dtype=object)
     cat_sec_serialized = np.empty(N_SUPPLIERS, dtype=object)
@@ -120,7 +122,7 @@ def build_supplier_master() -> pl.DataFrame:
 
     df = pl.DataFrame({
         "LIFNR": [f"SUPP-{1_000_000 + i:07d}" for i in range(N_SUPPLIERS)],
-        "NAME1": name_pool[sup_pick],
+        "NAME1": supplier_names,
         "LAND1": land1,
         "ERSDA": ersda,
         "SPRAS": spras,
@@ -152,87 +154,242 @@ supplier_affinity = suppliers_df["_industry_segment_affinity"].to_numpy()
 
 SUPPLIER_IDX_BY_AFFINITY = {
     seg: np.where(supplier_affinity == seg)[0]
-    for seg in ["HAD", "HPA", "HSB", "HET", "CROSS"]
+    for seg in ["AD", "PA", "SB", "ET", "CROSS"]
 }
+# supplier_id -> maverick propensity (used to tilt PR source toward ManualSubmission)
+maverick_by_id = dict(zip(supplier_ids, supplier_maverick))
 
 # COMMAND ----------
 # MAGIC %md ## ARIBA_CONTRACT_WORKSPACE (~1,500 contracts)
 
 # COMMAND ----------
+# Contracts and sourcing events are built into in-memory REGISTRIES here, then
+# MUTATED by the per-quarter lineage pass (which mints extra contracts/events
+# on demand so every intended PR→contract / PR→event link resolves), then
+# WRITTEN once after the quarter loop. This is what lets contract_id /
+# sourcing_event_id be stamped on PRs and ride PR→PO→invoice downstream.
+# See _lib.py "Procurement document lineage".
 N_CONTRACTS = 1500
+N_EVENTS = 2500
 CONTRACT_FILE = f"{OUT}/ARIBA_CONTRACT_WORKSPACE.csv"
+EVENT_FILE = f"{OUT}/ARIBA_SOURCING_EVENT.csv"
+_CONTRACT_COLS = ["ContractWorkspaceId", "ContractType", "Title", "AwardedSupplierId",
+                  "EffectiveDate", "ExpirationDate", "TotalCommittedSpend",
+                  "ActualSpendToDate", "Status", "OwningRegion"]
+_EVENT_COLS = ["EventId", "EventType", "Title", "OwnerOrgUnit", "CreatedOn", "ClosedOn",
+               "SupplierInvitedCount", "SupplierRespondedCount", "AwardedSupplierId",
+               "AwardedAmount", "Status"]
+
+contract_registry: List[Dict] = []
+contracts_by_supplier: Dict[str, List[Dict]] = {}
+event_registry: List[Dict] = []
+events_by_supplier: Dict[str, List[Dict]] = {}
+
+
+def _register_contract(row: Dict):
+    contract_registry.append(row)
+    contracts_by_supplier.setdefault(row["AwardedSupplierId"], []).append(row)
+
+
+def _register_event(row: Dict):
+    event_registry.append(row)
+    events_by_supplier.setdefault(row["AwardedSupplierId"], []).append(row)
+
+
+def _as_date(v):
+    """Normalize a date-ish value (datetime64 / iso str / date) to datetime.date."""
+    if isinstance(v, date):
+        return v
+    return np.datetime64(v, "D").astype("datetime64[D]").astype(object)
+
+
+# ---- Base contracts ------------------------------------------------------
 if target is None or not os.path.exists(CONTRACT_FILE):
     rng = rng_for("ariba:contracts")
     awarded_idx = rng.choice(N_SUPPLIERS, size=N_CONTRACTS, replace=True,
                              p=(1.0 - supplier_maverick) / (1.0 - supplier_maverick).sum())
-    awarded_supplier = supplier_ids[awarded_idx]
     ct_type = rng.choice(["Master", "Statement of Work", "Amendment", "Framework"],
-                          size=N_CONTRACTS, p=[0.45, 0.30, 0.10, 0.15])
+                         size=N_CONTRACTS, p=[0.45, 0.30, 0.10, 0.15])
     eff_days = rng.integers(0, 365 * 3, size=N_CONTRACTS)
     eff_date = (np.datetime64("2023-01-01") + eff_days.astype("timedelta64[D]")).astype("datetime64[D]")
     term_days = rng.integers(365, 365 * 3, size=N_CONTRACTS)
-    exp_date = (eff_date.astype("datetime64[D]") + term_days.astype("timedelta64[D]")).astype("datetime64[D]")
+    exp_date = (eff_date + term_days.astype("timedelta64[D]")).astype("datetime64[D]")
     total_commit = np.round(rng.lognormal(mean=12.5, sigma=1.2, size=N_CONTRACTS), 2).clip(50_000, 50_000_000)
-    actual_pct = rng.beta(2.0, 3.0, size=N_CONTRACTS)
-    actual_spend = np.round(total_commit * actual_pct, 2)
+    actual_spend = np.round(total_commit * rng.beta(2.0, 3.0, size=N_CONTRACTS), 2)
     status = rng.choice(["Active", "Active", "Active", "Expired", "Draft"], size=N_CONTRACTS)
     region = rng.choice(["NA", "EMEA", "APAC", "LATAM"], size=N_CONTRACTS, p=[0.60, 0.22, 0.13, 0.05])
-
-    df = pl.DataFrame({
-        "ContractWorkspaceId": [f"CW-{2_000_000 + i:08d}" for i in range(N_CONTRACTS)],
-        "ContractType": ct_type,
-        "Title": [f"{ct_type[i]} — {SPEND_CAT_BY_CODE[supplier_primary_cat[awarded_idx[i]]]['code']}" for i in range(N_CONTRACTS)],
-        "AwardedSupplierId": awarded_supplier,
-        "EffectiveDate": eff_date,
-        "ExpirationDate": exp_date,
-        "TotalCommittedSpend": total_commit,
-        "ActualSpendToDate": actual_spend,
-        "Status": status,
-        "OwningRegion": region,
-    })
-    write_csv(df, CONTRACT_FILE)
-    print(f"Wrote {len(df)} contracts")
+    eff_d, exp_d = eff_date.astype(object), exp_date.astype(object)
+    for i in range(N_CONTRACTS):
+        cat_code = supplier_primary_cat[awarded_idx[i]]
+        _register_contract({
+            "ContractWorkspaceId": f"CW-{2_000_000 + i:08d}",
+            "ContractType": str(ct_type[i]),
+            "Title": f"{ct_type[i]} — {cat_code}",
+            "AwardedSupplierId": str(supplier_ids[awarded_idx[i]]),
+            "EffectiveDate": eff_d[i],
+            "ExpirationDate": exp_d[i],
+            "TotalCommittedSpend": float(total_commit[i]),
+            "ActualSpendToDate": float(actual_spend[i]),
+            "Status": str(status[i]),
+            "OwningRegion": str(region[i]),
+            "_category": cat_code,
+        })
+    print(f"Prepared {len(contract_registry):,} base contracts (in memory)")
 else:
-    print("Skipping contracts (target quarter mode)")
+    for row in pl.read_csv(CONTRACT_FILE, try_parse_dates=True).iter_rows(named=True):
+        row = dict(row)
+        row["EffectiveDate"] = _as_date(row["EffectiveDate"])
+        row["ExpirationDate"] = _as_date(row["ExpirationDate"])
+        row.setdefault("_category", None)
+        _register_contract(row)
+    print(f"Loaded {len(contract_registry):,} existing contracts (target mode)")
+
+_next_contract_seq = max(
+    (int(c["ContractWorkspaceId"].split("-")[1]) - 2_000_000 for c in contract_registry),
+    default=N_CONTRACTS - 1) + 1
 
 # COMMAND ----------
 # MAGIC %md ## ARIBA_SOURCING_EVENT (~2,500 events)
 
 # COMMAND ----------
-N_EVENTS = 2500
-EVENT_FILE = f"{OUT}/ARIBA_SOURCING_EVENT.csv"
+# ---- Base sourcing events ------------------------------------------------
 if target is None or not os.path.exists(EVENT_FILE):
     rng = rng_for("ariba:events")
     event_type = rng.choice(["RFQ", "RFP", "Auction"], size=N_EVENTS, p=[0.55, 0.30, 0.15])
     created_days = rng.integers(0, 365 * 3, size=N_EVENTS)
     created_on = (np.datetime64("2023-01-01") + created_days.astype("timedelta64[D]")).astype("datetime64[D]")
     closed_days = rng.integers(14, 90, size=N_EVENTS)
-    closed_on = (created_on.astype("datetime64[D]") + closed_days.astype("timedelta64[D]")).astype("datetime64[D]")
+    closed_on = (created_on + closed_days.astype("timedelta64[D]")).astype("datetime64[D]")
     invited = rng.integers(3, 12, size=N_EVENTS)
     responded = (invited * rng.beta(3.0, 2.0, size=N_EVENTS)).round().astype(int)
     awarded_idx = rng.integers(0, N_SUPPLIERS, size=N_EVENTS)
     awarded_amt = np.round(rng.lognormal(mean=11.0, sigma=1.3, size=N_EVENTS), 2)
     status = rng.choice(["Awarded", "Awarded", "Awarded", "Closed - No Award"], size=N_EVENTS)
-    cat_titles = [SPEND_CAT_BY_CODE[supplier_primary_cat[awarded_idx[i]]]["code"] for i in range(N_EVENTS)]
-
-    df = pl.DataFrame({
-        "EventId": [f"SRC-{3_000_000 + i:08d}" for i in range(N_EVENTS)],
-        "EventType": event_type,
-        "Title": [f"{event_type[i]} — {cat_titles[i]}" for i in range(N_EVENTS)],
-        "OwnerOrgUnit": rng.choice(["Procurement-Aero", "Procurement-IA", "Procurement-BA",
-                                    "Procurement-ESS", "Procurement-Corp"], size=N_EVENTS),
-        "CreatedOn": created_on,
-        "ClosedOn": closed_on,
-        "SupplierInvitedCount": invited,
-        "SupplierRespondedCount": responded,
-        "AwardedSupplierId": supplier_ids[awarded_idx],
-        "AwardedAmount": awarded_amt,
-        "Status": status,
-    })
-    write_csv(df, EVENT_FILE)
-    print(f"Wrote {len(df)} sourcing events")
+    owner = rng.choice(["Procurement-Aero", "Procurement-IA", "Procurement-BA",
+                        "Procurement-ESS", "Procurement-Corp"], size=N_EVENTS)
+    cre_d, clo_d = created_on.astype(object), closed_on.astype(object)
+    for i in range(N_EVENTS):
+        cat_code = supplier_primary_cat[awarded_idx[i]]
+        _register_event({
+            "EventId": f"SRC-{3_000_000 + i:08d}",
+            "EventType": str(event_type[i]),
+            "Title": f"{event_type[i]} — {cat_code}",
+            "OwnerOrgUnit": str(owner[i]),
+            "CreatedOn": cre_d[i],
+            "ClosedOn": clo_d[i],
+            "SupplierInvitedCount": int(invited[i]),
+            "SupplierRespondedCount": int(responded[i]),
+            "AwardedSupplierId": str(supplier_ids[awarded_idx[i]]),
+            "AwardedAmount": float(awarded_amt[i]),
+            "Status": str(status[i]),
+            "_category": cat_code,
+        })
+    print(f"Prepared {len(event_registry):,} base sourcing events (in memory)")
 else:
-    print("Skipping sourcing events (target quarter mode)")
+    for row in pl.read_csv(EVENT_FILE, try_parse_dates=True).iter_rows(named=True):
+        row = dict(row)
+        row["CreatedOn"] = _as_date(row["CreatedOn"])
+        row["ClosedOn"] = _as_date(row["ClosedOn"])
+        row.setdefault("_category", None)
+        _register_event(row)
+    print(f"Loaded {len(event_registry):,} existing sourcing events (target mode)")
+
+_next_event_seq = max(
+    (int(e["EventId"].split("-")[1]) - 3_000_000 for e in event_registry),
+    default=N_EVENTS - 1) + 1
+
+
+# ---- Lineage lookup + mint helpers ---------------------------------------
+def _find_active_contract(supplier_id, on_date, cat_code=None):
+    """First Active contract for the supplier whose window covers on_date (category-aligned if possible)."""
+    active = [c for c in contracts_by_supplier.get(supplier_id, [])
+              if c.get("Status") == "Active"
+              and c["EffectiveDate"] <= on_date <= c["ExpirationDate"]]
+    if not active:
+        return None
+    if cat_code is not None:
+        for c in active:
+            if c.get("_category") == cat_code:
+                return c["ContractWorkspaceId"]
+    return active[0]["ContractWorkspaceId"]
+
+
+def _find_awarded_event(supplier_id, on_date, cat_code=None):
+    """An Awarded event for the supplier whose award is still valid at on_date (created before, closed within ~2y)."""
+    valid = [e for e in events_by_supplier.get(supplier_id, [])
+             if e.get("Status") == "Awarded"
+             and e["CreatedOn"] <= on_date <= (e["ClosedOn"] + timedelta(days=730))]
+    if not valid:
+        return None
+    if cat_code is not None:
+        for e in valid:
+            if e.get("_category") == cat_code:
+                return e["EventId"]
+    return valid[0]["EventId"]
+
+
+def _mint_contract(supplier_id, on_date, cat_code, min_commit, rng):
+    """Create an Active contract covering on_date for this supplier and register it."""
+    global _next_contract_seq
+    seq = _next_contract_seq
+    _next_contract_seq += 1
+    ct = str(rng.choice(["Master", "Statement of Work", "Framework"], p=[0.40, 0.35, 0.25]))
+    eff = on_date - timedelta(days=int(rng.integers(30, 540)))
+    exp = on_date + timedelta(days=int(rng.integers(180, 900)))
+    commit = round(float(max(min_commit, CONTRACT_REQUIRED_THRESHOLD) * rng.uniform(1.2, 4.0)), 2)
+    row = {
+        "ContractWorkspaceId": f"CW-{2_000_000 + seq:08d}",
+        "ContractType": ct, "Title": f"{ct} — {cat_code}",
+        "AwardedSupplierId": str(supplier_id), "EffectiveDate": eff, "ExpirationDate": exp,
+        "TotalCommittedSpend": commit, "ActualSpendToDate": round(commit * float(rng.beta(2.0, 3.0)), 2),
+        "Status": "Active", "OwningRegion": "NA", "_category": cat_code,
+    }
+    _register_contract(row)
+    return row["ContractWorkspaceId"]
+
+
+def _mint_event(supplier_id, on_date, cat_code, amt_hint, rng):
+    """Create an Awarded sourcing event preceding on_date for this supplier and register it."""
+    global _next_event_seq
+    seq = _next_event_seq
+    _next_event_seq += 1
+    et = str(rng.choice(["RFQ", "RFP", "Auction"], p=[0.55, 0.30, 0.15]))
+    created = on_date - timedelta(days=int(rng.integers(30, 365)))
+    closed = created + timedelta(days=int(rng.integers(14, 90)))
+    invited = int(rng.integers(3, 12))
+    row = {
+        "EventId": f"SRC-{3_000_000 + seq:08d}",
+        "EventType": et, "Title": f"{et} — {cat_code}", "OwnerOrgUnit": "Procurement-Corp",
+        "CreatedOn": created, "ClosedOn": closed,
+        "SupplierInvitedCount": invited, "SupplierRespondedCount": int(rng.integers(2, invited + 1)),
+        "AwardedSupplierId": str(supplier_id),
+        "AwardedAmount": round(float(max(amt_hint, SOURCING_EVENT_REQUIRED_THRESHOLD) * rng.uniform(0.9, 1.5)), 2),
+        "Status": "Awarded", "_category": cat_code,
+    }
+    _register_event(row)
+    return row["EventId"]
+
+
+def _assign_pr_source(pr_total, routine, maverick, rng):
+    """Sample a PR origination channel, tilted by dollar size, category routineness, and supplier maverick propensity."""
+    w = dict(PR_SOURCE_BASE_WEIGHTS)
+    if pr_total < 10_000:
+        w[PR_SOURCE_CATALOG] *= 2.2; w[PR_SOURCE_AGENT] *= 1.8
+        w[PR_SOURCE_PORTAL] *= 0.8;  w[PR_SOURCE_MANUAL] *= 0.7
+    elif pr_total > 250_000:
+        w[PR_SOURCE_CATALOG] *= 0.05; w[PR_SOURCE_AGENT] *= 0.05
+        w[PR_SOURCE_PORTAL] *= 1.3;   w[PR_SOURCE_MANUAL] *= 1.5
+    elif pr_total > CONTRACT_REQUIRED_THRESHOLD:
+        w[PR_SOURCE_CATALOG] *= 0.30; w[PR_SOURCE_AGENT] *= 0.40
+        w[PR_SOURCE_PORTAL] *= 1.2;   w[PR_SOURCE_MANUAL] *= 1.2
+    if routine:
+        w[PR_SOURCE_CATALOG] *= 1.6; w[PR_SOURCE_AGENT] *= 1.8
+    else:
+        w[PR_SOURCE_AGENT] *= 0.30  # the agent channel only buys routine goods/services
+    w[PR_SOURCE_MANUAL] *= (1.0 + float(maverick) * 6.0)
+    p = np.array([w[k] for k in PR_SOURCES], dtype=float)
+    p = p / p.sum()
+    return str(rng.choice(PR_SOURCES, p=p))
 
 # COMMAND ----------
 # MAGIC %md ## Per-quarter PR generation (EBAN-style header + line)
@@ -269,7 +426,7 @@ def generate_quarter(fy: int, fq: int):
     pr_lines: List[Dict] = []
     next_pr_seq = 0  # within this quarter
 
-    bukrs_by_seg = {s["code"]: s["company_code"] for s in HELIOS_SEGMENTS}
+    bukrs_by_seg = {s["code"]: s["company_code"] for s in SEGMENTS}
 
     for seg in SEGMENT_CODES:
         target_spend = (anchor_metric(anchors, fy, fq, seg, "cogs")
@@ -411,14 +568,74 @@ def generate_quarter(fy: int, fq: int):
                 l["_estimated_net_amount"] = round(l["_estimated_net_amount"] * scale, 2)
                 l["PREIS"] = round(l["PREIS"] * scale, 2)
 
+    # ---- Document lineage: pr_source + contract_id + sourcing_event_id ------
+    # Stamp an origination channel on every PR, then link it to a contract and/or
+    # a sourcing event by value-threshold + per-source compliance (lookup-or-mint).
+    # These references ride PR→PO→invoice downstream, so "managed spend" is answered
+    # by document lineage, not a supplier heuristic. See _lib.py "Procurement
+    # document lineage". Runs post-renorm so thresholds use final PR dollars.
+    rng_lin = rng_for(f"ariba:lineage:{quarter_label}")
+    created_by_banfn = {h["BANFN"]: h["ERDAT"] for h in pr_headers}
+    lines_by_banfn: Dict[str, List[Dict]] = {}
+    for l in pr_lines:
+        lines_by_banfn.setdefault(l["BANFN"], []).append(l)
+
+    for banfn, lns in lines_by_banfn.items():
+        supplier_id = lns[0]["_supplier_intended"]
+        pr_created = created_by_banfn[banfn]
+        pr_total = sum(l["_estimated_net_amount"] for l in lns)
+        cat_spend: Dict[str, float] = {}
+        for l in lns:
+            cat_spend[l["_true_category_secondary"]] = (
+                cat_spend.get(l["_true_category_secondary"], 0.0) + l["_estimated_net_amount"])
+        dom_cat = max(cat_spend, key=cat_spend.get)
+        routine = dom_cat in ROUTINE_CATEGORIES
+        mav = float(maverick_by_id.get(supplier_id, 0.1))
+
+        src = _assign_pr_source(pr_total, routine, mav, rng_lin)
+        comp = SOURCE_COMPLIANCE[src]
+
+        # Soft (jittered) governance thresholds → did this buy *require* each doc?
+        contract_req = pr_total > CONTRACT_REQUIRED_THRESHOLD * float(rng_lin.lognormal(0.0, THRESHOLD_JITTER_SIGMA))
+        event_req = pr_total > SOURCING_EVENT_REQUIRED_THRESHOLD * float(rng_lin.lognormal(0.0, THRESHOLD_JITTER_SIGMA))
+
+        # Compliance → is each doc actually present? (catalog over-complies on contracts)
+        want_contract = rng_lin.random() < (comp["contract_when_required"] if contract_req else comp["contract_overcomply"])
+        if rng_lin.random() < LINEAGE_EXCEPTION_RATE:
+            want_contract = not want_contract
+        want_event = (rng_lin.random() < comp["event_when_required"]) if event_req else False
+        if event_req and rng_lin.random() < LINEAGE_EXCEPTION_RATE:
+            want_event = not want_event
+
+        contract_id = None
+        if want_contract:
+            contract_id = (_find_active_contract(supplier_id, pr_created, dom_cat)
+                           or _mint_contract(supplier_id, pr_created, dom_cat, pr_total, rng_lin))
+        sourcing_event_id = None
+        if want_event:
+            sourcing_event_id = (_find_awarded_event(supplier_id, pr_created, dom_cat)
+                                 or _mint_event(supplier_id, pr_created, dom_cat, pr_total, rng_lin))
+
+        # Stamp on lines, with small per-line dropout (a contracted PR can have an
+        # off-contract tail line — mixed PRs are real).
+        for l in lns:
+            l["_pr_source"] = src
+            l["_contract_id"] = None if (contract_id and rng_lin.random() < LINE_LINK_DROPOUT_RATE) else contract_id
+            l["_sourcing_event_id"] = None if (sourcing_event_id and rng_lin.random() < LINE_LINK_DROPOUT_RATE) else sourcing_event_id
+
     # Write
     pr_header_df = pl.DataFrame(pr_headers).select([
         "BANFN", "BUKRS", "AFNAM", "ERDAT", "BSART", "STATU", "LFDAT",
     ])
-    pr_line_df = pl.DataFrame(pr_lines).select([
+    # schema_overrides: the lineage columns are mostly NULL early (sourcing is rare),
+    # so let Polars know they're strings rather than inferring a Null column.
+    pr_line_df = pl.DataFrame(pr_lines, schema_overrides={
+        "_pr_source": pl.Utf8, "_contract_id": pl.Utf8, "_sourcing_event_id": pl.Utf8,
+    }).select([
         "BANFN", "BNFPO", "MATNR", "MATGROUP", "TXZ01",
         "MENGE", "MEINS", "PREIS", "PEINH", "WAERS",
         "_supplier_intended", "_true_category_primary", "_true_category_secondary",
+        "_pr_source", "_contract_id", "_sourcing_event_id",
     ])
     write_csv(pr_header_df, f"{OUT}/EBAN_PR_HEADER_{quarter_label}.csv")
     write_csv(pr_line_df,   f"{OUT}/EBAN_PR_LINE_{quarter_label}.csv")
@@ -450,5 +667,14 @@ def generate_quarter(fy: int, fq: int):
 
 for (fy, fq) in periods:
     generate_quarter(fy, fq)
+
+# Write the contract & sourcing-event registries LAST — they now include any
+# contracts/events minted on demand during the per-quarter lineage pass.
+_n_minted_contracts = len(contract_registry) - N_CONTRACTS
+_n_minted_events = len(event_registry) - N_EVENTS
+write_csv(pl.DataFrame(contract_registry).select(_CONTRACT_COLS), CONTRACT_FILE)
+write_csv(pl.DataFrame(event_registry).select(_EVENT_COLS), EVENT_FILE)
+print(f"Wrote {len(contract_registry):,} contracts ({max(_n_minted_contracts, 0):,} minted) "
+      f"and {len(event_registry):,} sourcing events ({max(_n_minted_events, 0):,} minted)")
 
 print("Ariba generation complete.")

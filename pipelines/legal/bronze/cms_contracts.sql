@@ -5,14 +5,14 @@
 -- ============================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW ${schema_bronze_cms}.contract
-COMMENT "Outbound (revenue-side) commercial contract header. helios_entity_segment maps to HAD/HPA/HSB/HET."
+COMMENT "Outbound (revenue-side) commercial contract header. entity_segment maps to AD/PA/SB/ET."
 AS SELECT *, _metadata.file_path AS _source_file, _metadata.file_modification_time AS _ingested_at
 FROM read_files(
   "/Volumes/${catalog}/${schema_raw}/${raw_volume}/inhouse_cms/contract.jsonl",
   format => "json");
 
 CREATE OR REFRESH MATERIALIZED VIEW ${schema_bronze_cms}.contract_party
-COMMENT "Counterparties per contract (Helios + Customer rows)."
+COMMENT "Counterparties per contract (Internal + Customer rows)."
 AS SELECT *, _metadata.file_path AS _source_file, _metadata.file_modification_time AS _ingested_at
 FROM read_files(
   "/Volumes/${catalog}/${schema_raw}/${raw_volume}/inhouse_cms/contract_party.jsonl",

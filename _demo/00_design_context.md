@@ -30,7 +30,7 @@
 
 | Decision area | Chosen option |
 |---|---|
-| Anonymized company + segments | **Helios Industrial Group (HIG)** with segments HAD / HPA / HSB / HET |
+| Anonymized company + segments | **Strategic Spend Analytics** with segments HAD / HPA / HSB / HET |
 | Anchor seeding | **Hand-curated rows in `01_period_anchors_seed.py`** (originally hybrid AI extract + human review; simplified later) |
 | Geographies | **NA / EMEA / APAC / LATAM** (rename, not retained verbatim) |
 | Catalog/schema layout | **`finance_demo.{raw_data, bronze_ariba, bronze_fusion, bronze_cms, silver, gold, _meta, ml}`** (expanded from 6 → 8 schemas during scaffold; see §10) |
@@ -39,16 +39,16 @@
 
 ## 1. Anonymized company framing
 
-**Company:** Helios Industrial Group, Inc. (HIG)
+**Company:** Strategic Spend Analytics, Inc.
 **Fiscal year:** calendar-year (Dec 31 close), matching the reference filings' cadence
 **Scale:** 1/10 of the reference filings — ~$3.85B FY revenue, ~$570M net income, ~10K employees
 
-| Helios segment                            | Code | HON segment origin                | Mix |
+| segment                            | Code | HON segment origin                | Mix |
 |-------------------------------------------|------|-----------------------------------|-----|
-| Helios Aerospace & Defense                | HAD  | Aerospace Technologies            | ~37% |
-| Helios Process Automation                 | HPA  | Industrial Automation             | ~26% |
-| Helios Smart Buildings                    | HSB  | Building Automation               | ~16% |
-| Helios Energy Transition                  | HET  | Energy & Sustainability Solutions | ~21% |
+| Aerospace & Defense                | HAD  | Aerospace Technologies            | ~37% |
+| Process Automation                 | HPA  | Industrial Automation             | ~26% |
+| Smart Buildings                    | HSB  | Building Automation               | ~16% |
+| Energy Transition                  | HET  | Energy & Sustainability Solutions | ~21% |
 
 **Geographies:** `North America` (~60%), `EMEA` (~22%), `APAC` (~13%), `LATAM` (~5%).
 
@@ -58,7 +58,7 @@
 
 ## 2. Anchor table — `_meta.dim_period_anchors`
 
-Single source of truth for "what does Helios's books look like in period X." All downstream generators reconcile to it.
+Single source of truth for "what does 's books look like in period X." All downstream generators reconcile to it.
 
 **Grain:** one row per (`period_type`, `period_end_date`, `segment_code`)
 - `period_type ∈ {'FY','Q'}`

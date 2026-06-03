@@ -1,0 +1,28 @@
+resources:
+  jobs:
+    apply_metric_views:
+      name: finance-demo-apply-metric-views-${bundle.target}
+      description: >
+        Create/refresh the UC metric layer: gold.mv_spend (base — governed
+        spend flags in its SQL-query source) and gold.mv_supplier_performance
+        (nested on mv_spend). Metric views can't be Lakeflow pipeline datasets,
+        so they're applied here as a post-pipeline step. Run after the
+        lakehouse pipeline refresh. Idempotent (CREATE OR REPLACE).
+      max_concurrent_runs: 1
+      email_notifications: {}
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+      tasks:
+        - task_key: apply_metric_views
+          environment_key: default
+          notebook_task:
+            notebook_path: ../metric_views/apply_metric_views.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema_gold: ${var.schema_gold}
+              schema_silver: ${var.schema_silver}
+      queue:
+        enabled: true

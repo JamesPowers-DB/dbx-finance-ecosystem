@@ -15,8 +15,8 @@ SELECT
   CAST(l.BNFPO AS INT)                                              AS pr_line_num,
   h.BUKRS                                                           AS company_code,
   CASE h.BUKRS
-    WHEN '1100' THEN 'HAD' WHEN '1200' THEN 'HPA'
-    WHEN '1300' THEN 'HSB' WHEN '1400' THEN 'HET'
+    WHEN '1100' THEN 'AD' WHEN '1200' THEN 'PA'
+    WHEN '1300' THEN 'SB' WHEN '1400' THEN 'ET'
     WHEN '1900' THEN 'CORP' ELSE 'OTHER'
   END                                                               AS segment_code,
   h.AFNAM                                                           AS requester_id,
@@ -41,6 +41,9 @@ SELECT
   l.WAERS                                                           AS currency,
   l._true_category_primary                                          AS true_category_primary,
   l._true_category_secondary                                        AS true_category_secondary,
+  l._pr_source                                                      AS pr_source,
+  l._contract_id                                                    AS contract_id,
+  l._sourcing_event_id                                              AS sourcing_event_id,
   YEAR(h.ERDAT)                                                     AS fiscal_year,
   QUARTER(h.ERDAT)                                                  AS fiscal_quarter
 FROM ${schema_bronze_ariba}.EBAN_PR_LINE l
