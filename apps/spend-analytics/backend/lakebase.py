@@ -75,34 +75,81 @@ ALTER TABLE savings_avoidance_entries
     ADD COLUMN IF NOT EXISTS approved_at       TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS rejected_at       TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS rejection_reason  TEXT;
+
+-- Unified savings register: one ledger for every logged saving (cost reduction
+-- OR cost avoidance), tied to a sourcing event or contract, with a two-step
+-- submit → attest workflow. Replaces the split reductions/avoidance model.
+CREATE TABLE IF NOT EXISTS savings_register (
+    record_id            TEXT PRIMARY KEY,
+    artifact_type        TEXT NOT NULL,            -- 'sourcing_event' | 'contract'
+    artifact_id          TEXT NOT NULL,
+    artifact_title       TEXT,
+    savings_class        TEXT NOT NULL,            -- 'reduction' | 'avoidance'
+    savings_type         TEXT NOT NULL,            -- taxonomy key (see cost_savings.SAVINGS_TYPES)
+    supplier_id          TEXT,
+    supplier_name        TEXT,
+    segment_code         TEXT,
+    fiscal_year          INTEGER NOT NULL,
+    fiscal_quarter       INTEGER NOT NULL,
+    baseline_amount_usd  NUMERIC(18,2),
+    realized_amount_usd  NUMERIC(18,2),
+    savings_amount_usd   NUMERIC(18,2) NOT NULL,
+    baseline_context     TEXT,
+    notes                TEXT,
+    submitted_by         TEXT NOT NULL,
+    submitted_at         TIMESTAMPTZ DEFAULT NOW(),
+    status               TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'attested' | 'rejected'
+    attested_by          TEXT,
+    attested_at          TIMESTAMPTZ,
+    rejection_reason     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_savings_register_status ON savings_register (status);
 """
 
 
-def _get_obo_conninfo(caller: CallerIdentity) -> str:
-    """Build conninfo using the calling user's OBO token.
+def _conninfo(caller: CallerIdentity) -> str:
+    """Build a Lakebase conninfo, preferring the app service principal but
+    falling back to the calling user (OBO).
 
-    Uses an explicit Config object so the SDK does not fall back to env vars
-    (DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET) that the Apps runtime
-    injects for the SP — those would conflict with the OBO token and cause
-    'more than one authorization method' errors.
+    Identity → Postgres role (postgres_role) → conninfo `user`:
+      - SP path: if the Apps runtime exposes the SP's OAuth creds
+        (DATABRICKS_CLIENT_ID/SECRET), connect as the SP — its Lakebase role's
+        postgres_role is the client id.
+      - OBO fallback: this app runtime did NOT expose SP M2M creds to the SDK
+        (bare WorkspaceClient() can't auth), so use the caller's forwarded OBO
+        token; their postgres_role is their email. Requires the user to have a
+        Lakebase role + the `postgres` user_api_scope.
+
+    Either way, a short-lived credential is minted per request (auto-rotation),
+    and human attribution (submitted_by/attested_by) is recorded separately from
+    caller.email at the app layer.
     """
+    import os
     from databricks.sdk import WorkspaceClient
     from databricks.sdk.config import Config
 
-    settings = get_settings()
-    w = WorkspaceClient(config=Config(
-        host=settings.databricks_host,
-        token=caller.access_token,
-    ))
-    me = w.current_user.me()
-    cred = w.postgres.generate_database_credential(
-        endpoint=settings.lakebase_endpoint
-    )
+    s = get_settings()
+    client_id = os.getenv("DATABRICKS_CLIENT_ID")
+    client_secret = os.getenv("DATABRICKS_CLIENT_SECRET")
+    if client_id and client_secret:
+        w = WorkspaceClient(config=Config(
+            host=s.databricks_host, client_id=client_id, client_secret=client_secret,
+        ))
+        pg_user = client_id
+    else:
+        if caller.is_anonymous:
+            raise RuntimeError("Lakebase requires an authenticated caller (no SP creds available).")
+        w = WorkspaceClient(config=Config(
+            host=s.databricks_host, token=caller.access_token,
+        ))
+        pg_user = caller.email
+    cred = w.postgres.generate_database_credential(endpoint=s.lakebase_endpoint)
     return (
-        f"host={settings.lakebase_host} "
-        f"port={settings.lakebase_port} "
-        f"dbname={settings.lakebase_database} "
-        f"user={me.user_name} "
+        f"host={s.lakebase_host} "
+        f"port={s.lakebase_port} "
+        f"dbname={s.lakebase_database} "
+        f"user={pg_user} "
         f"password={cred.token} "
         f"sslmode=require"
     )
@@ -133,14 +180,14 @@ async def close_pool() -> None:
 
 
 async def _ensure_ddl(caller: CallerIdentity) -> None:
-    """Run DDL once on the first authenticated user request (lazy init)."""
+    """Run DDL once on the first request (lazy init)."""
     global _ddl_done
     if _ddl_done:
         return
     async with _ddl_lock:
         if _ddl_done:
             return
-        conninfo = await asyncio.to_thread(_get_obo_conninfo, caller)
+        conninfo = await asyncio.to_thread(_conninfo, caller)
         async with await psycopg.AsyncConnection.connect(conninfo) as conn:
             await conn.execute(DDL)
         _ddl_done = True
@@ -150,16 +197,18 @@ async def _ensure_ddl(caller: CallerIdentity) -> None:
 
 @asynccontextmanager
 async def db_conn(caller: CallerIdentity) -> AsyncIterator[psycopg.AsyncConnection]:
-    """Open a per-request Lakebase connection using the caller's OBO token."""
+    """Open a per-request Lakebase connection (SP if its creds are available,
+    else OBO as the caller — see _conninfo)."""
     if not _lakebase_configured:
         raise RuntimeError(
             "Lakebase not configured. Set LAKEBASE_HOST in app.yaml."
         )
     if caller.is_anonymous:
         raise RuntimeError(
-            "Lakebase writes require a real OBO token — anonymous mode not supported."
+            "Lakebase requires an authenticated caller — not available in local "
+            "anonymous dev."
         )
     await _ensure_ddl(caller)
-    conninfo = await asyncio.to_thread(_get_obo_conninfo, caller)
+    conninfo = await asyncio.to_thread(_conninfo, caller)
     async with await psycopg.AsyncConnection.connect(conninfo) as conn:
         yield conn

@@ -72,9 +72,6 @@ N_SUPPLIERS = 3000
 
 def build_supplier_master() -> pl.DataFrame:
     rng = rng_for("ariba:lfa1")
-    g = mimesis_for("ariba:lfa1")
-    name_pool = pool_names(g, pool_size=1500)
-    sup_pick = rng.integers(0, len(name_pool), size=N_SUPPLIERS)
 
     countries = list(COUNTRY_WEIGHTS.keys())
     cw = np.array([COUNTRY_WEIGHTS[c] for c in countries])
@@ -90,6 +87,11 @@ def build_supplier_master() -> pl.DataFrame:
         ["AD", "PA", "SB", "ET", "CROSS"],
         size=N_SUPPLIERS, p=[0.25, 0.25, 0.15, 0.15, 0.20],
     )
+
+    # Fabricated, unique, segment-flavored supplier names (see _lib.make_supplier_names).
+    # Keyed to seg_affinity so a supplier's name reads consistently with the
+    # categories it primarily buys (cat_pri below is drawn from the same segment).
+    supplier_names = make_supplier_names(rng, seg_affinity)
 
     cat_pri = np.empty(N_SUPPLIERS, dtype=object)
     cat_sec_serialized = np.empty(N_SUPPLIERS, dtype=object)
@@ -120,7 +122,7 @@ def build_supplier_master() -> pl.DataFrame:
 
     df = pl.DataFrame({
         "LIFNR": [f"SUPP-{1_000_000 + i:07d}" for i in range(N_SUPPLIERS)],
-        "NAME1": name_pool[sup_pick],
+        "NAME1": supplier_names,
         "LAND1": land1,
         "ERSDA": ersda,
         "SPRAS": spras,

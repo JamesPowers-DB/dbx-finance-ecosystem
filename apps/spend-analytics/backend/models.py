@@ -108,75 +108,29 @@ class SupplierRow(BaseModel):
     avg_dpo: float | None
 
 
-# ── Cost Savings ──────────────────────────────────────────────────────────────
+# ── Cost Savings (unified register) ───────────────────────────────────────────
 
-class CostReductionRow(BaseModel):
-    savings_event_id: str
-    source_id: str
-    segment_code: str | None
-    fiscal_year: int
-    fiscal_quarter: int
-    category_primary: str | None
-    supplier_id: str | None
-    supplier_name: str | None
-    event_type: str
-    event_title: str | None
-    awarded_amount: float
-    baseline_amount: float
-    savings_amount_usd: float
-    savings_rate: float
-
-
-class AvoidanceEntry(BaseModel):
-    entry_id: str
-    source_type: str
-    source_id: str | None
-    segment_code: str | None
-    fiscal_year: int
-    fiscal_quarter: int
-    category_primary: str | None
-    supplier_id: str | None
-    supplier_name: str | None
-    savings_amount_usd: float
-    baseline_context: str | None
-    notes: str | None
-    attested_by: str
-    attested_at: datetime
-    approved: bool
-    approved_by: str | None = None
-    approved_at: datetime | None = None
-    rejected_at: datetime | None = None
-    rejection_reason: str | None = None
-
-
-class AvoidanceEntryCreate(BaseModel):
-    source_type: str = "manual"
-    source_id: str | None = None
+class SavingsSubmit(BaseModel):
+    """Payload to log a new savings record (lands as status='pending')."""
+    artifact_type: str            # 'sourcing_event' | 'contract'
+    artifact_id: str
+    artifact_title: str | None = None
+    savings_class: str            # 'reduction' | 'avoidance'
+    savings_type: str             # taxonomy key (cost_savings.SAVINGS_TYPES)
+    supplier_id: str | None = None
+    supplier_name: str | None = None
     segment_code: str | None = None
     fiscal_year: int
     fiscal_quarter: int
-    category_primary: str | None = None
-    supplier_id: str | None = None
-    supplier_name: str | None = None
+    baseline_amount_usd: float | None = None
+    realized_amount_usd: float | None = None
     savings_amount_usd: float
     baseline_context: str | None = None
     notes: str | None = None
 
 
-class AvoidanceRejectBody(BaseModel):
+class SavingsRejectBody(BaseModel):
     reason: str
-
-
-class SavingsSummaryRow(BaseModel):
-    segment_code: str | None
-    fiscal_year: int
-    fiscal_quarter: int
-    reduction_usd: float
-    avoidance_usd: float
-    pending_avoidance_usd: float
-    total_savings_usd: float
-    fpa_budget_usd: float | None
-    savings_pct_of_budget: float | None
 
 
 # ── Chatbot ───────────────────────────────────────────────────────────────────

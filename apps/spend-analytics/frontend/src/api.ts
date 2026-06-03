@@ -1,6 +1,4 @@
 import type {
-  AvoidanceEntry,
-  AvoidanceEntryCreate,
   ChatMessage,
   ChatSession,
   ChatSessionCreate,
@@ -8,7 +6,6 @@ import type {
   ContractInvoiceRow,
   ContractPORow,
   ContractRow,
-  CostReductionRow,
   AnalyticsKpis,
   CompositionDetailRow,
   DateRange,
@@ -16,7 +13,10 @@ import type {
   LifecycleFunnelRow,
   ManagedStatusResponse,
   MeResponse,
-  SavingsSummaryRow,
+  SavingsRecord,
+  SavingsKpis,
+  SavingsArtifact,
+  SavingsSubmit,
   SpendCompositionRow,
   SpendTrendRow,
   SupplierConcentrationRow,
@@ -55,6 +55,15 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function del<T>(path: string): Promise<T> {
+  const res = await fetch(`${API}${path}`, { method: "DELETE" });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(res.status, `${res.status} ${res.statusText}: ${text}`);
+  }
+  return res.json() as Promise<T>;
+}
+
 // ── System ────────────────────────────────────────────────────────────────────
 export const getMe = () => j<MeResponse>("/me");
 export const getKpis = () => j<KpiResponse>("/kpis");
@@ -79,25 +88,29 @@ export const getSuppliers = (params?: Record<string, string>) => {
 export const getSupplierScorecard = (id: string) =>
   j<SupplierScorecard>(`/suppliers/${encodeURIComponent(id)}/scorecard`);
 
-// ── Cost Savings ──────────────────────────────────────────────────────────────
-export const getCostReductions = (params?: Record<string, string>) => {
-  const qs = params ? "?" + new URLSearchParams(params).toString() : "";
-  return j<CostReductionRow[]>(`/cost_savings/reductions${qs}`);
+// ── Cost Savings register ─────────────────────────────────────────────────────
+export const getSavingsRegister = (params?: { status?: string; savings_class?: string; fiscal_year?: number }) => {
+  const qs = params
+    ? "?" + new URLSearchParams(Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])).toString()
+    : "";
+  return j<SavingsRecord[]>(`/cost_savings/register${qs}`);
 };
-export const getAvoidanceEntries = (fiscalYear?: number) =>
-  j<AvoidanceEntry[]>(`/cost_savings/avoidance${fiscalYear ? `?fiscal_year=${fiscalYear}` : ""}`);
-export const createAvoidanceEntry = (body: AvoidanceEntryCreate) =>
-  post<AvoidanceEntry>("/cost_savings/avoidance", body);
-export const approveAvoidanceEntry = (entryId: string) =>
-  post<AvoidanceEntry>(`/cost_savings/avoidance/${encodeURIComponent(entryId)}/approve`, {});
-export const rejectAvoidanceEntry = (entryId: string, reason: string) =>
-  post<AvoidanceEntry>(`/cost_savings/avoidance/${encodeURIComponent(entryId)}/reject`, { reason });
-export const getSavingsSummary = () => j<SavingsSummaryRow[]>("/cost_savings/summary");
+export const getSavingsKpis = () => j<SavingsKpis>("/cost_savings/kpis");
+export const searchSavingsArtifacts = (q: string, kind?: "sourcing_event" | "contract") =>
+  j<SavingsArtifact[]>(`/cost_savings/artifacts?q=${encodeURIComponent(q)}${kind ? `&kind=${kind}` : ""}`);
+export const submitSavings = (body: SavingsSubmit) =>
+  post<SavingsRecord>("/cost_savings/register", body);
+export const attestSavings = (recordId: string) =>
+  post<SavingsRecord>(`/cost_savings/register/${encodeURIComponent(recordId)}/attest`, {});
+export const rejectSavings = (recordId: string, reason: string) =>
+  post<SavingsRecord>(`/cost_savings/register/${encodeURIComponent(recordId)}/reject`, { reason });
 
 // ── Chatbot ───────────────────────────────────────────────────────────────────
 export const createSession = (body: ChatSessionCreate) =>
   post<ChatSession>("/chat/sessions", body);
 export const getSessions = () => j<ChatSession[]>("/chat/sessions");
+export const deleteSession = (sessionId: string) =>
+  del<{ ok: boolean }>(`/chat/sessions/${encodeURIComponent(sessionId)}`);
 export const getMessages = (sessionId: string) =>
   j<ChatMessage[]>(`/chat/sessions/${sessionId}/messages`);
 

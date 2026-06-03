@@ -147,67 +147,71 @@ export interface SupplierScorecard extends SupplierRow {
   }[];
 }
 
-export interface CostReductionRow {
-  savings_event_id: string;
-  source_id: string;
-  segment_code: string | null;
-  fiscal_year: number;
-  fiscal_quarter: number;
-  category_primary: string | null;
-  supplier_id: string | null;
-  supplier_name: string | null;
-  event_type: string;
-  event_title: string | null;
-  awarded_amount: number;
-  baseline_amount: number;
-  savings_amount_usd: number;
-  savings_rate: number;
-}
+export type SavingsClass = "reduction" | "avoidance";
+export type SavingsStatus = "pending" | "attested" | "rejected";
 
-export interface AvoidanceEntry {
-  entry_id: string;
-  source_type: string;
-  source_id: string | null;
+export interface SavingsRecord {
+  record_id: string;
+  artifact_type: "sourcing_event" | "contract";
+  artifact_id: string;
+  artifact_title: string | null;
+  savings_class: SavingsClass;
+  savings_type: string;
+  supplier_id: string | null;
+  supplier_name: string | null;
   segment_code: string | null;
   fiscal_year: number;
   fiscal_quarter: number;
-  category_primary: string | null;
-  supplier_id: string | null;
-  supplier_name: string | null;
+  baseline_amount_usd: number | null;
+  realized_amount_usd: number | null;
   savings_amount_usd: number;
   baseline_context: string | null;
   notes: string | null;
-  attested_by: string;
-  attested_at: string;
-  approved: boolean;
-  approved_by: string | null;
-  approved_at: string | null;
-  rejected_at: string | null;
+  submitted_by: string;
+  submitted_at: string;
+  status: SavingsStatus;
+  attested_by: string | null;
+  attested_at: string | null;
   rejection_reason: string | null;
 }
 
-export interface SavingsSummaryRow {
-  segment_code: string | null;
-  fiscal_year: number;
-  fiscal_quarter: number;
-  reduction_usd: number;
-  // Approved avoidance only — pending entries are separate.
-  avoidance_usd: number;
-  pending_avoidance_usd: number;
-  total_savings_usd: number;
-  fpa_budget_usd: number | null;
-  savings_pct_of_budget: number | null;
+export interface SavingsKpis {
+  attested_total: number;
+  pending_total: number;
+  pending_count: number;
+  hard_total: number;
+  soft_total: number;
+  addressable_spend: number;
+  savings_pct_of_addressable: number | null;
+  by_quarter: { fiscal_year: number; fiscal_quarter: number; reduction: number; avoidance: number }[];
 }
 
-export interface AvoidanceEntryCreate {
-  source_type?: string;
-  source_id?: string | null;
+export interface SavingsArtifact {
+  artifact_type: "sourcing_event" | "contract";
+  artifact_id: string;
+  title: string | null;
+  supplier_id: string | null;
+  supplier_name: string | null;
+  segment_code: string | null;
+  fiscal_year: number | null;
+  fiscal_quarter: number | null;
+  baseline_amount: number | null;
+  realized_amount: number | null;
+}
+
+export interface SavingsSubmit {
+  artifact_type: "sourcing_event" | "contract";
+  artifact_id: string;
+  artifact_title?: string | null;
+  savings_class: SavingsClass;
+  savings_type: string;
+  supplier_id?: string | null;
+  supplier_name?: string | null;
   segment_code?: string | null;
   fiscal_year: number;
   fiscal_quarter: number;
-  category_primary?: string | null;
-  supplier_id?: string | null;
-  supplier_name?: string | null;
+  baseline_amount_usd?: number | null;
+  realized_amount_usd?: number | null;
   savings_amount_usd: number;
   baseline_context?: string | null;
   notes?: string | null;

@@ -15,9 +15,19 @@ resources:
             id: ${var.warehouse_id}
             permission: CAN_USE
 
-      # OBO: Apps injects X-Forwarded-Access-Token per request so every UC
-      # query runs as the logged-in user. Without this, the app runs in
-      # app-principal mode and all OBO routes 401.
+        # NOTE on Lakebase access: the app SERVICE PRINCIPAL connects to the
+        # autoscale project `finance-horizontals` and is granted via a Postgres
+        # ROLE on the branch (added in the Lakebase UI / `postgres create-role`),
+        # NOT an app resource binding. The `postgres` binding's `database` field
+        # only resolves control-plane-registered databases; `bizapps-spend` was
+        # created via SQL, so the binding 404s on it. Connection auth is handled
+        # in lakebase._conninfo (SP if its creds are present, else OBO caller).
+
+      # OBO scopes. `sql` runs UC warehouse queries as the logged-in user.
+      # `postgres` lets the forwarded user token mint a Lakebase credential —
+      # required for the OBO fallback in lakebase._conninfo (this app runtime
+      # does not expose SP M2M creds to the SDK, so Lakebase connects as the
+      # calling user, who must have a Lakebase role).
       user_api_scopes:
         - sql
         - postgres

@@ -97,12 +97,12 @@ export function BurnDownChart({
               strokeDasharray="4 3"
             />
             <text
-              x={innerW + 4}
-              y={y(committedSpend)}
+              x={innerW}
+              y={y(committedSpend) - 5}
+              textAnchor="end"
               fontFamily="var(--font-mono)"
               fontSize={10}
               fill="var(--db-lava-600)"
-              dominantBaseline="middle"
             >
               Budget
             </text>

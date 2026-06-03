@@ -1,8 +1,13 @@
 # Databricks App runtime configuration.
-# All env vars MUST live here — the bundle's resources/apps.yml config.env
-# block is silently ignored at deploy time.
-# `valueFrom:` pulls the live resource IDs that DAB substitutes at deploy.
-# `value:` are stable workspace literals.
+# All env vars MUST live here. They cannot be parameterized with ${var.*}:
+#   - app.yaml is synced verbatim (app source, NOT bundle config), so DAB does
+#     not substitute ${var.*} here.
+#   - the bundle can't set them either — resources.apps.<name>.config has no
+#     env_vars field (it's an "unknown field" warning that does nothing).
+# `valueFrom:` is the one dynamic option — it resolves an app *resource* binding
+# (e.g. the warehouse) at runtime. `value:` are literals.
+# ► PROD KNOBS (the only values that differ for a prod app deploy):
+#     DATABRICKS_CATALOG → horizontal_finance   ·   GENIE_SPACE_TITLE → "(prod)"
 
 command:
   - "uvicorn"
@@ -17,15 +22,18 @@ env:
   - name: DATABRICKS_WAREHOUSE_ID
     valueFrom: warehouse
 
-  # Lakebase Autoscaling — project spend-analytics, provisioned 2026-05-20.
+  # Lakebase Autoscaling — project finance-horizontals, database bizapps-spend.
+  # The app connects as its SERVICE PRINCIPAL (bound via the `lakebase` database
+  # resource in resources/apps.yml); the SDK mints a short-lived credential per
+  # request against LAKEBASE_ENDPOINT for token rotation.
   - name: LAKEBASE_HOST
-    value: "ep-blue-cake-d1dw80zo.database.us-west-2.cloud.databricks.com"
+    value: "ep-noisy-hill-d1s86l7e.database.us-west-2.cloud.databricks.com"
   - name: LAKEBASE_PORT
     value: "5432"
   - name: LAKEBASE_DATABASE
-    value: "databricks_postgres"
+    value: "bizapps-spend"
   - name: LAKEBASE_ENDPOINT
-    value: "projects/spend-analytics/branches/production/endpoints/primary"
+    value: "projects/finance-horizontals/branches/production/endpoints/primary"
 
   # Genie space — the ask_genie tool resolves the space id by TITLE at runtime,
   # so nothing has to write an id here. Must match the title the setup job
@@ -37,15 +45,19 @@ env:
   # FMAPI serving endpoint for the procurement chatbot.
   # Use a Llama 3.3 70B or Claude endpoint registered in Model Serving.
   - name: DATABRICKS_SERVING_ENDPOINT_NAME
-    value: "databricks-meta-llama-3-3-70b-instruct"
+    value: "databricks-claude-sonnet-4-6"
 
-  # Unity Catalog coordinates — stable per workspace/target.
-  # Dev target uses horizontal_finance_dev; prod uses horizontal_finance.
+  # Unity Catalog coordinates. These can't use ${var.*} (app.yaml is synced
+  # verbatim — not bundle-templated — and the bundle can't set app env vars).
+  # The schemas are CONSTANT across dev/prod (var.schema_* default to these in
+  # every target), so only the catalog is a per-target value.
+  # ► PROD KNOB: set DATABRICKS_CATALOG to "horizontal_finance" for a prod app
+  #   deploy (matches var.catalog's prod default). Dev uses horizontal_finance_dev.
   - name: DATABRICKS_CATALOG
-    value: "horizontal_finance_dev"
+    value: "horizontal_finance_dev"     # prod: horizontal_finance
   - name: DATABRICKS_SILVER_SCHEMA
-    value: "silver"
+    value: "silver"                     # constant across targets
   - name: DATABRICKS_GOLD_SCHEMA
-    value: "gold"
+    value: "gold"                       # constant across targets
   - name: DATABRICKS_ML_SCHEMA
-    value: "ml"
+    value: "ml"                         # constant across targets

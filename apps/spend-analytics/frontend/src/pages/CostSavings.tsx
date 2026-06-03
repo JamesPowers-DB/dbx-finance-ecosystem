@@ -3,623 +3,361 @@ import { BlobBg } from "../components/layout/BlobBg";
 import { PageHero } from "../components/layout/PageHero";
 import { Card } from "../components/layout/Card";
 import { StatTile } from "../components/StatTile";
-import { PrimaryBtn, Pill, SegSelect } from "../components/Buttons";
-import { MetricTooltip } from "../components/MetricTooltip";
-import { HeaderLabel } from "../components/HeaderLabel";
-import { METRICS, eventTypeMetric } from "../components/metricDefinitions";
+import { PrimaryBtn, SecondaryBtn, Pill } from "../components/Buttons";
 import { BarChart } from "../charts/BarChart";
+import { SAVINGS_TYPES, SAVINGS_TYPE_LABEL, CLASS_LABEL } from "../components/savingsTaxonomy";
 import {
-  getCostReductions,
-  getSavingsSummary,
-  getAvoidanceEntries,
-  createAvoidanceEntry,
-  approveAvoidanceEntry,
-  rejectAvoidanceEntry,
-  getSuppliers,
+  getSavingsRegister,
+  getSavingsKpis,
+  searchSavingsArtifacts,
+  submitSavings,
+  attestSavings,
+  rejectSavings,
+  getMe,
 } from "../api";
-import { fmtUSD, fmtPct, fmtDate } from "../format";
-import type {
-  AvoidanceEntry,
-  AvoidanceEntryCreate,
-  CostReductionRow,
-  SavingsSummaryRow,
-  SupplierRow,
-} from "../types";
+import { fmtUSD, fmtPct, fmtInt, fmtDate } from "../format";
+import type { SavingsRecord, SavingsKpis, SavingsArtifact, SavingsClass, SavingsStatus } from "../types";
 
-// Segment codes — fixed enumeration (matches dim_segment in UC).
-const SEGMENT_OPTIONS = [
-  { code: "AD", name: "Aerospace & Defense" },
-  { code: "PA", name: "Process Automation" },
-  { code: "SB", name: "Smart Buildings" },
-  { code: "ET", name: "Energy Transition" },
-  { code: "CORP", name: "Corporate" },
-];
+const fyq = (fy: number, fq: number) => `FY${String(fy).slice(2)} Q${fq}`;
+const num = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+
+const STATUS_TONE: Record<SavingsStatus, { color: string; label: string }> = {
+  pending:  { color: "var(--warning)", label: "Pending" },
+  attested: { color: "var(--db-green-700)", label: "Attested" },
+  rejected: { color: "var(--danger)", label: "Rejected" },
+};
+
+const cell: React.CSSProperties = { padding: "var(--space-3) var(--space-4)" };
+const th: React.CSSProperties = { ...cell, textAlign: "left", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)", fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase" };
+const detailLabel: React.CSSProperties = { fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.05em" };
+
+function StatusChip({ status }: { status: SavingsStatus }) {
+  const t = STATUS_TONE[status];
+  return (
+    <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600, color: t.color, border: `1px solid ${t.color}`, borderRadius: "var(--radius-pill)", padding: "2px 9px", whiteSpace: "nowrap" }}>
+      {t.label}
+    </span>
+  );
+}
 
 export function CostSavings({ searchQuery = "" }: { searchQuery?: string }) {
-  const [reductions, setReductions] = useState<CostReductionRow[]>([]);
-  const [avoidance, setAvoidance] = useState<AvoidanceEntry[]>([]);
-  const [summary, setSummary] = useState<SavingsSummaryRow[]>([]);
-  const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
-  const [view, setView] = useState<"summary" | "reductions" | "avoidance">("summary");
+  const [records, setRecords] = useState<SavingsRecord[]>([]);
+  const [kpis, setKpis] = useState<SavingsKpis | null>(null);
   const [loading, setLoading] = useState(true);
-  const [formOpen, setFormOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [supplierQuery, setSupplierQuery] = useState("");
+  const [me, setMe] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<SavingsStatus | "">("");
+  const [classFilter, setClassFilter] = useState<SavingsClass | "">("");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [actioning, setActioning] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
-  const [actioningId, setActioningId] = useState<string | null>(null);
-  const [form, setForm] = useState<AvoidanceEntryCreate>({
-    fiscal_year: new Date().getFullYear(),
-    fiscal_quarter: Math.ceil((new Date().getMonth() + 1) / 3),
-    savings_amount_usd: 0,
-  });
 
-  useEffect(() => {
-    // Suppliers list is small (<=200) and powers the avoidance form
-    // autocomplete; fetch in parallel with the savings data.
-    Promise.allSettled([
-      getCostReductions(),
-      getSavingsSummary(),
-      getAvoidanceEntries(),
-      getSuppliers({ sort_by: "trailing_12m_spend", exclude_regulated: "false" }),
+  // Log-savings form
+  const [formOpen, setFormOpen] = useState(false);
+  const [artifactQuery, setArtifactQuery] = useState("");
+  const [artifactResults, setArtifactResults] = useState<SavingsArtifact[]>([]);
+  const [artifact, setArtifact] = useState<SavingsArtifact | null>(null);
+  const [savingsType, setSavingsType] = useState<string>("");
+  const [savingsAmount, setSavingsAmount] = useState<string>("");
+  const [baselineContext, setBaselineContext] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => { getMe().then((u) => setMe(u.email)).catch(() => {}); }, []);
+
+  const reload = () => {
+    setLoading(true);
+    Promise.all([
+      getSavingsRegister({ status: statusFilter || undefined, savings_class: classFilter || undefined }),
+      getSavingsKpis(),
     ])
-      .then(([r, s, a, sup]) => {
-        if (r.status === "fulfilled") setReductions(r.value);
-        if (s.status === "fulfilled") setSummary(s.value);
-        if (a.status === "fulfilled") setAvoidance(a.value);
-        if (sup.status === "fulfilled") setSuppliers(sup.value);
-      })
+      .then(([r, k]) => { setRecords(r); setKpis(k); })
+      .catch(() => { setRecords([]); setKpis(null); })
       .finally(() => setLoading(false));
-  }, []);
+  };
+  useEffect(reload, [statusFilter, classFilter]);
 
-  // Approved-only totals (summary already filters approval at the API).
-  const totalReduction = summary.reduce((acc, r) => acc + r.reduction_usd, 0);
-  const totalAvoidance = summary.reduce((acc, r) => acc + r.avoidance_usd, 0);
-  const totalPending = summary.reduce((acc, r) => acc + r.pending_avoidance_usd, 0);
+  // Artifact search for the Log form
+  useEffect(() => {
+    if (!formOpen || artifactQuery.trim().length < 2) { setArtifactResults([]); return; }
+    let live = true;
+    searchSavingsArtifacts(artifactQuery.trim())
+      .then((r) => { if (live) setArtifactResults(r); })
+      .catch(() => { if (live) setArtifactResults([]); });
+    return () => { live = false; };
+  }, [artifactQuery, formOpen]);
 
   const q = searchQuery.toLowerCase();
-  const filteredReductions = q
-    ? reductions.filter(
-        (r) =>
-          r.supplier_name?.toLowerCase().includes(q) ||
-          r.category_primary?.toLowerCase().includes(q) ||
-          r.event_title?.toLowerCase().includes(q) ||
-          r.event_type?.toLowerCase().includes(q),
-      )
-    : reductions;
-  const filteredAvoidance = q
-    ? avoidance.filter(
-        (a) =>
-          a.supplier_name?.toLowerCase().includes(q) ||
-          a.category_primary?.toLowerCase().includes(q) ||
-          a.notes?.toLowerCase().includes(q),
-      )
-    : avoidance;
+  const rows = useMemo(
+    () => (q ? records.filter((r) =>
+      r.supplier_name?.toLowerCase().includes(q) ||
+      r.artifact_title?.toLowerCase().includes(q) ||
+      r.artifact_id.toLowerCase().includes(q) ||
+      SAVINGS_TYPE_LABEL[r.savings_type]?.toLowerCase().includes(q),
+    ) : records),
+    [records, q],
+  );
 
-  const barData = Object.entries(
-    reductions.reduce<Record<string, number>>((acc, r) => {
-      const k = r.category_primary ?? "Unknown";
-      acc[k] = (acc[k] ?? 0) + r.savings_amount_usd;
-      return acc;
-    }, {}),
-  )
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 12)
-    .map(([label, value]) => ({ label, value }));
+  const quarterBars = useMemo(
+    () => (kpis?.by_quarter ?? [])
+      .filter((b) => b.reduction + b.avoidance > 0)
+      .map((b) => ({ label: fyq(b.fiscal_year, b.fiscal_quarter), value: num(b.reduction), value2: num(b.avoidance) })),
+    [kpis],
+  );
 
-  // Supplier autocomplete: simple substring filter on the loaded list,
-  // capped at 8 matches so the dropdown stays compact in the modal.
-  const supplierMatches = useMemo(() => {
-    const qq = supplierQuery.trim().toLowerCase();
-    if (!qq) return [];
-    return suppliers
-      .filter((s) => s.supplier_name?.toLowerCase().includes(qq))
-      .slice(0, 8);
-  }, [supplierQuery, suppliers]);
+  async function doAttest(id: string) {
+    setActioning(id);
+    try { const u = await attestSavings(id); setRecords((p) => p.map((r) => r.record_id === id ? u : r)); getSavingsKpis().then(setKpis).catch(() => {}); }
+    catch (e) { alert(e instanceof Error ? e.message : "Attest failed"); }
+    finally { setActioning(null); }
+  }
+  async function doReject() {
+    if (!rejectingId || !rejectReason.trim()) return;
+    setActioning(rejectingId);
+    try { const u = await rejectSavings(rejectingId, rejectReason.trim()); setRecords((p) => p.map((r) => r.record_id === rejectingId ? u : r)); setRejectingId(null); setRejectReason(""); getSavingsKpis().then(setKpis).catch(() => {}); }
+    catch (e) { alert(e instanceof Error ? e.message : "Reject failed"); }
+    finally { setActioning(null); }
+  }
 
-  async function submitAvoidance() {
-    if (form.savings_amount_usd <= 0 || !form.fiscal_year || !form.fiscal_quarter) return;
+  function resetForm() {
+    setArtifact(null); setArtifactQuery(""); setArtifactResults([]);
+    setSavingsType(""); setSavingsAmount(""); setBaselineContext(""); setFormError(null);
+  }
+  async function doSubmit() {
+    setFormError(null);
+    if (!artifact) { setFormError("Pick a sourcing event or contract first."); return; }
+    const typeDef = SAVINGS_TYPES.find((t) => t.key === savingsType);
+    if (!typeDef) { setFormError("Choose a savings type."); return; }
+    const amt = Number(savingsAmount);
+    if (!Number.isFinite(amt) || amt <= 0) { setFormError("Enter a positive savings amount."); return; }
     setSubmitting(true);
     try {
-      const entry = await createAvoidanceEntry(form as AvoidanceEntryCreate);
-      setAvoidance((prev) => [entry, ...prev]);
-      // Refresh summary so the Pending sub-line updates immediately.
-      try { setSummary(await getSavingsSummary()); } catch { /* best-effort */ }
-      setFormOpen(false);
-      setSupplierQuery("");
-      setForm({
-        fiscal_year: new Date().getFullYear(),
-        fiscal_quarter: Math.ceil((new Date().getMonth() + 1) / 3),
-        savings_amount_usd: 0,
+      await submitSavings({
+        artifact_type: artifact.artifact_type,
+        artifact_id: artifact.artifact_id,
+        artifact_title: artifact.title,
+        savings_class: typeDef.cls,
+        savings_type: typeDef.key,
+        supplier_id: artifact.supplier_id,
+        supplier_name: artifact.supplier_name,
+        segment_code: artifact.segment_code,
+        fiscal_year: artifact.fiscal_year ?? new Date().getUTCFullYear(),
+        fiscal_quarter: artifact.fiscal_quarter ?? (Math.floor(new Date().getUTCMonth() / 3) + 1),
+        baseline_amount_usd: artifact.baseline_amount,
+        savings_amount_usd: amt,
+        baseline_context: baselineContext || null,
       });
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function approveEntry(id: string) {
-    setActioningId(id);
-    try {
-      const updated = await approveAvoidanceEntry(id);
-      setAvoidance((prev) => prev.map((e) => (e.entry_id === id ? updated : e)));
-      try { setSummary(await getSavingsSummary()); } catch { /* best-effort */ }
-    } finally {
-      setActioningId(null);
-    }
-  }
-
-  async function confirmReject() {
-    if (!rejectingId || !rejectReason.trim()) return;
-    setActioningId(rejectingId);
-    try {
-      const updated = await rejectAvoidanceEntry(rejectingId, rejectReason.trim());
-      setAvoidance((prev) => prev.map((e) => (e.entry_id === rejectingId ? updated : e)));
-      try { setSummary(await getSavingsSummary()); } catch { /* best-effort */ }
-      setRejectingId(null);
-      setRejectReason("");
-    } finally {
-      setActioningId(null);
-    }
-  }
-
-  // Approval state label + tone derived once per row.
-  function approvalState(a: AvoidanceEntry): { label: string; tone: "success" | "warning" | "danger" } {
-    if (a.approved) return { label: "✓ Approved", tone: "success" };
-    if (a.rejected_at) return { label: "✗ Rejected", tone: "danger" };
-    return { label: "Pending", tone: "warning" };
+      setFormOpen(false); resetForm(); reload();
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "Submit failed");
+    } finally { setSubmitting(false); }
   }
 
   return (
     <div style={{ position: "relative", flex: 1, overflow: "auto", padding: "var(--space-6)" }}>
       <BlobBg />
-      <div style={{ position: "relative", zIndex: 1, maxWidth: 1200 }}>
+      <div style={{ position: "relative", zIndex: 1, maxWidth: 1280 }}>
         <PageHero
-          eyebrow="Plan"
-          title="Cost Savings"
-          subtitle="Auto-detected reductions from sourcing events + manually logged avoidance entries."
-          right={
-            <div style={{ display: "flex", gap: "var(--space-3)" }}>
-              <SegSelect
-                options={[
-                  { label: "Summary", value: "summary" },
-                  { label: "Reductions", value: "reductions" },
-                  { label: "Avoidance", value: "avoidance" },
-                ]}
-                value={view}
-                onChange={(v) => setView(v as typeof view)}
-              />
-              {view === "avoidance" && (
-                <PrimaryBtn onClick={() => setFormOpen(true)}>+ Log Avoidance</PrimaryBtn>
-              )}
-            </div>
-          }
+          eyebrow="Procurement"
+          title="Savings Register"
+          subtitle="Every cost reduction (hard) and cost avoidance (soft) logged against a sourcing event or contract, then attested by a second person. Attested savings count toward the headline."
+          right={<PrimaryBtn onClick={() => { setFormOpen((o) => !o); resetForm(); }}>{formOpen ? "Close" : "Log savings +"}</PrimaryBtn>}
         />
 
-        {/* KPI strip — approved totals only; pending shown as separate sub-line */}
-        <div style={{ display: "flex", gap: "var(--space-4)", marginBottom: "var(--space-6)", flexWrap: "wrap" }}>
-          <StatTile label="Total Reduction" value={fmtUSD(totalReduction, true)}
-            accent="var(--db-green-700)" sub="auto-detected"
-            tooltip={METRICS.totalReduction} />
-          <StatTile label="Total Avoidance" value={fmtUSD(totalAvoidance, true)}
-            accent="var(--db-yellow-600)"
-            sub={totalPending > 0
-              ? `approved · pending ${fmtUSD(totalPending, true)}`
-              : "manually logged, approved only"}
-            tooltip={METRICS.totalAvoidance} />
-          <StatTile label="Combined Savings" value={fmtUSD(totalReduction + totalAvoidance, true)}
-            accent="var(--db-lava-600)" sub="reductions + approved avoidance"
-            tooltip={METRICS.combinedSavings} />
+        {/* KPI strip */}
+        <div style={{ display: "flex", gap: "var(--space-4)", marginBottom: "var(--space-5)", flexWrap: "wrap" }}>
+          <StatTile label="Attested Savings" value={kpis ? fmtUSD(kpis.attested_total, true) : "…"} accent="var(--db-green-700)" sub="verified, in register" />
+          <StatTile label="Pending Attestation" value={kpis ? fmtUSD(kpis.pending_total, true) : "…"} accent="var(--db-yellow-600)" sub={kpis ? `${kpis.pending_count} awaiting review` : ""} />
+          <StatTile label="Hard (Reduction)" value={kpis ? fmtUSD(kpis.hard_total, true) : "…"} accent="var(--db-lava-600)" sub="cash savings" />
+          <StatTile label="Soft (Avoidance)" value={kpis ? fmtUSD(kpis.soft_total, true) : "…"} accent="var(--db-navy-800)" sub="cost avoided" />
+          <StatTile label="Savings % of Addressable" value={kpis ? fmtPct(kpis.savings_pct_of_addressable) : "…"} sub="attested vs addressable spend" />
         </div>
 
-        {/* Summary view */}
-        {view === "summary" && !loading && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-5)" }}>
-            <Card>
-              <h3 style={{ fontSize: "var(--fs-body)", fontWeight: 700, marginBottom: "var(--space-4)" }}>
-                Savings by Category
-              </h3>
-              <BarChart
-                data={barData}
-                color="var(--db-lava-600)"
-                formatValue={(v) => fmtUSD(v, true)}
-                height={Math.max(280, barData.length * 28)}
-              />
-            </Card>
-            <Card padding="0">
-              <div style={{ padding: "var(--space-4)", borderBottom: "1px solid var(--border)" }}>
-                <h3 style={{ fontSize: "var(--fs-body)", fontWeight: 700 }}>Savings vs Budget by Segment × Quarter</h3>
+        {/* Log savings form */}
+        {formOpen && (
+          <Card style={{ marginBottom: "var(--space-5)" }} accent="var(--db-lava-600)">
+            <h3 style={{ fontSize: "var(--fs-h4)", fontWeight: 700, marginBottom: "var(--space-3)" }}>Log a savings record</h3>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-5)" }}>
+              {/* Artifact picker */}
+              <div>
+                <div style={{ ...detailLabel, marginBottom: 6 }}>1. Tie to an artifact (sourcing event or contract)</div>
+                {artifact ? (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "var(--space-3)", background: "var(--bg-subtle)" }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{artifact.title ?? artifact.artifact_id}</div>
+                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)" }}>
+                        {artifact.artifact_type === "contract" ? "Contract" : "Sourcing event"} · {artifact.artifact_id} · {artifact.supplier_name ?? "—"}
+                      </div>
+                    </div>
+                    <button onClick={() => setArtifact(null)} style={{ background: "none", border: "none", color: "var(--fg-3)", cursor: "pointer", fontSize: 16 }}>×</button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      value={artifactQuery}
+                      onChange={(e) => setArtifactQuery(e.target.value)}
+                      placeholder="Search by event, contract title, or supplier…"
+                      style={{ width: "100%", padding: "var(--space-2) var(--space-3)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-sans)", fontSize: 13 }}
+                    />
+                    {artifactResults.length > 0 && (
+                      <div style={{ marginTop: 6, maxHeight: 180, overflowY: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}>
+                        {artifactResults.map((a) => (
+                          <div key={`${a.artifact_type}-${a.artifact_id}`} onClick={() => { setArtifact(a); setArtifactResults([]); }}
+                            style={{ padding: "var(--space-2) var(--space-3)", cursor: "pointer", borderBottom: "1px solid var(--border)", fontSize: 12 }}>
+                            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: a.artifact_type === "contract" ? "var(--db-navy-800)" : "var(--db-lava-600)", marginRight: 6 }}>
+                              {a.artifact_type === "contract" ? "CONTRACT" : "EVENT"}
+                            </span>
+                            {a.title ?? a.artifact_id} <span style={{ color: "var(--fg-3)" }}>· {a.supplier_name ?? "—"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ minWidth: "100%", borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      {[
-                        { label: "Segment" },
-                        { label: "Period" },
-                        { label: "Reduction", tooltip: METRICS.totalReduction },
-                        { label: "Avoidance", tooltip: METRICS.totalAvoidance },
-                        { label: "Pending", tooltip: METRICS.pendingAvoidance },
-                        { label: "Total", tooltip: METRICS.combinedSavings },
-                        { label: "% of Budget", tooltip: METRICS.savingsPctOfBudget },
-                      ].map((h) => (
-                        <th key={h.label} style={{ padding: "var(--space-3) var(--space-4)", textAlign: "left",
-                          fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-3)",
-                          fontWeight: 500, textTransform: "uppercase" }}>
-                          <HeaderLabel label={h.label} tooltip={h.tooltip} />
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.slice(0, 30).map((r) => (
-                      <tr key={`${r.segment_code}-${r.fiscal_year}-${r.fiscal_quarter}`}
-                        style={{ borderBottom: "1px solid var(--border)" }}>
-                        <td style={{ padding: "var(--space-2) var(--space-4)", fontSize: 12 }}>{r.segment_code ?? "—"}</td>
-                        <td style={{ padding: "var(--space-2) var(--space-4)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
-                          FY{String(r.fiscal_year).slice(-2)} Q{r.fiscal_quarter}
-                        </td>
-                        <td style={{ padding: "var(--space-2) var(--space-4)", fontFamily: "var(--font-mono)", fontSize: 12,
-                          color: "var(--success)" }}>
-                          {fmtUSD(r.reduction_usd, true)}
-                        </td>
-                        <td style={{ padding: "var(--space-2) var(--space-4)", fontFamily: "var(--font-mono)", fontSize: 12,
-                          color: "var(--warning)" }}>
-                          {fmtUSD(r.avoidance_usd, true)}
-                        </td>
-                        <td style={{ padding: "var(--space-2) var(--space-4)", fontFamily: "var(--font-mono)", fontSize: 12,
-                          color: "var(--fg-3)" }}
-                          title="Pending avoidance — not yet counted in Total">
-                          {r.pending_avoidance_usd > 0 ? fmtUSD(r.pending_avoidance_usd, true) : "—"}
-                        </td>
-                        <td style={{ padding: "var(--space-2) var(--space-4)", fontFamily: "var(--font-mono)", fontSize: 12,
-                          fontWeight: 600 }}>
-                          {fmtUSD(r.total_savings_usd, true)}
-                        </td>
-                        <td style={{ padding: "var(--space-2) var(--space-4)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
-                          {fmtPct(r.savings_pct_of_budget)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              {/* Type + amount */}
+              <div>
+                <div style={{ ...detailLabel, marginBottom: 6 }}>2. Savings type & amount</div>
+                <select value={savingsType} onChange={(e) => setSavingsType(e.target.value)}
+                  style={{ width: "100%", padding: "var(--space-2) var(--space-3)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", fontSize: 13, marginBottom: "var(--space-2)" }}>
+                  <option value="">Select a savings type…</option>
+                  <optgroup label="Cost Reduction (hard)">
+                    {SAVINGS_TYPES.filter((t) => t.cls === "reduction").map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+                  </optgroup>
+                  <optgroup label="Cost Avoidance (soft)">
+                    {SAVINGS_TYPES.filter((t) => t.cls === "avoidance").map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+                  </optgroup>
+                </select>
+                <input type="number" value={savingsAmount} onChange={(e) => setSavingsAmount(e.target.value)} placeholder="Savings amount (USD)"
+                  style={{ width: "100%", padding: "var(--space-2) var(--space-3)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-mono)", fontSize: 13, marginBottom: "var(--space-2)" }} />
+                <textarea value={baselineContext} onChange={(e) => setBaselineContext(e.target.value)} placeholder="Baseline context (how was the saving measured?)" rows={2}
+                  style={{ width: "100%", padding: "var(--space-2) var(--space-3)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-sans)", fontSize: 13, resize: "vertical" }} />
               </div>
-            </Card>
-          </div>
-        )}
-
-        {/* Reductions table */}
-        {view === "reductions" && (
-          <Card padding="0">
-            {loading ? (
-              <div style={{ padding: "var(--space-7)", textAlign: "center", color: "var(--fg-3)" }}>Loading…</div>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ minWidth: "100%", borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      {[
-                        { label: "Supplier" },
-                        { label: "Category" },
-                        { label: "Period" },
-                        { label: "Type" },
-                        { label: "Baseline", tooltip: METRICS.savingsBaseline },
-                        { label: "Awarded", tooltip: METRICS.savingsAwarded },
-                        { label: "Savings", tooltip: METRICS.totalReduction },
-                        { label: "Rate", tooltip: METRICS.savingsRate },
-                      ].map((h) => (
-                        <th key={h.label} style={{ padding: "var(--space-3) var(--space-4)", textAlign: "left",
-                          fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)",
-                          fontWeight: 500, textTransform: "uppercase" }}>
-                          <HeaderLabel label={h.label} tooltip={h.tooltip} />
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredReductions.slice(0, 200).map((r) => (
-                      <tr key={r.savings_event_id} style={{ borderBottom: "1px solid var(--border)" }}>
-                        <td style={{ padding: "var(--space-3) var(--space-4)", fontSize: 13 }}>{r.supplier_name ?? r.supplier_id ?? "—"}</td>
-                        <td style={{ padding: "var(--space-3) var(--space-4)" }}><Pill>{r.category_primary ?? "—"}</Pill></td>
-                        <td style={{ padding: "var(--space-3) var(--space-4)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
-                          FY{String(r.fiscal_year).slice(-2)} Q{r.fiscal_quarter}
-                        </td>
-                        <td style={{ padding: "var(--space-3) var(--space-4)" }}>
-                          {/* Event type pill — back-calculated baseline rate explained on hover. */}
-                          <MetricTooltip content={eventTypeMetric(r.event_type)} hoverOnly>
-                            <Pill>{r.event_type}</Pill>
-                          </MetricTooltip>
-                        </td>
-                        <td style={{ padding: "var(--space-3) var(--space-4)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
-                          {fmtUSD(r.baseline_amount, true)}
-                        </td>
-                        <td style={{ padding: "var(--space-3) var(--space-4)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
-                          {fmtUSD(r.awarded_amount, true)}
-                        </td>
-                        <td style={{ padding: "var(--space-3) var(--space-4)", fontFamily: "var(--font-mono)", fontSize: 12,
-                          color: "var(--success)", fontWeight: 600 }}>
-                          {fmtUSD(r.savings_amount_usd, true)}
-                        </td>
-                        <td style={{ padding: "var(--space-3) var(--space-4)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
-                          {fmtPct(r.savings_rate * 100)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            </div>
+            {formError && <div style={{ color: "var(--danger)", fontSize: 12, marginTop: "var(--space-2)" }}>{formError}</div>}
+            <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-3)" }}>
+              <PrimaryBtn onClick={doSubmit} disabled={submitting}>{submitting ? "Submitting…" : "Submit for attestation"}</PrimaryBtn>
+              <SecondaryBtn onClick={() => { setFormOpen(false); resetForm(); }}>Cancel</SecondaryBtn>
+            </div>
           </Card>
         )}
 
-        {/* Avoidance table */}
-        {view === "avoidance" && (
-          <Card padding="0">
-            {loading ? (
-              <div style={{ padding: "var(--space-7)", textAlign: "center", color: "var(--fg-3)" }}>Loading…</div>
-            ) : avoidance.length === 0 ? (
-              <div style={{ padding: "var(--space-7)", textAlign: "center", color: "var(--fg-3)" }}>
-                No avoidance entries yet. Click "+ Log Avoidance" to add one.
-              </div>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
+        {/* By-quarter attested hard/soft */}
+        {quarterBars.length > 0 && (
+          <Card style={{ marginBottom: "var(--space-5)" }}>
+            <h3 style={{ fontSize: "var(--fs-h4)", fontWeight: 700, marginBottom: "var(--space-1)" }}>Attested savings by quarter</h3>
+            <p style={{ fontSize: "var(--fs-body-sm)", color: "var(--fg-2)", marginBottom: "var(--space-4)" }}>Hard (cost reduction) vs soft (cost avoidance), attested only.</p>
+            <BarChart data={quarterBars} color="var(--db-lava-600)" color2="var(--db-navy-800)" label1="Reduction" label2="Avoidance" formatValue={(v) => fmtUSD(v, true)} width={1180} height={Math.max(180, quarterBars.length * 30 + 24)} />
+          </Card>
+        )}
+
+        {/* Filters */}
+        <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-3)", flexWrap: "wrap" }}>
+          {(["", "pending", "attested", "rejected"] as const).map((s) => (
+            <Pill key={s || "all"} active={statusFilter === s} onClick={() => setStatusFilter(s)}>{s ? STATUS_TONE[s].label : "All status"}</Pill>
+          ))}
+          <span style={{ width: 1, background: "var(--border)", margin: "0 var(--space-2)" }} />
+          {(["", "reduction", "avoidance"] as const).map((c) => (
+            <Pill key={c || "allc"} active={classFilter === c} onClick={() => setClassFilter(c)}>{c ? CLASS_LABEL[c] : "All types"}</Pill>
+          ))}
+        </div>
+
+        {/* Register table */}
+        <Card padding="0">
+          {loading ? (
+            <div style={{ padding: "var(--space-7)", textAlign: "center", color: "var(--fg-3)" }}>Loading…</div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
               <table style={{ minWidth: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                    {[
-                      { label: "Supplier" },
-                      { label: "Segment" },
-                      { label: "Category" },
-                      { label: "Period" },
-                      { label: "Amount", tooltip: METRICS.totalAvoidance },
-                      { label: "Attested By" },
-                      { label: "Date" },
-                      { label: "Status", tooltip: METRICS.pendingPill },
-                      { label: "Actions" },
-                    ].map((h) => (
-                      <th key={h.label} style={{ padding: "var(--space-3) var(--space-4)", textAlign: "left",
-                        fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)",
-                        fontWeight: 500, textTransform: "uppercase" }}>
-                        <HeaderLabel label={h.label} tooltip={h.tooltip} />
-                      </th>
+                    {["Artifact", "Supplier", "Class", "Type", "Savings", "Period", "Status"].map((h) => (
+                      <th key={h} style={th}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredAvoidance.map((a) => {
-                    const state = approvalState(a);
-                    const busy = actioningId === a.entry_id;
+                  {rows.map((r) => {
+                    const isOpen = selected === r.record_id;
+                    const cls = STATUS_TONE[r.status];
                     return (
-                      <tr key={a.entry_id} style={{ borderBottom: "1px solid var(--border)" }}>
-                        <td style={{ padding: "var(--space-3) var(--space-4)", fontSize: 13 }}>{a.supplier_name ?? "—"}</td>
-                        <td style={{ padding: "var(--space-3) var(--space-4)" }}>
-                          {a.segment_code ? <Pill>{a.segment_code}</Pill> : "—"}
-                        </td>
-                        <td style={{ padding: "var(--space-3) var(--space-4)" }}><Pill>{a.category_primary ?? "—"}</Pill></td>
-                        <td style={{ padding: "var(--space-3) var(--space-4)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
-                          FY{String(a.fiscal_year).slice(-2)} Q{a.fiscal_quarter}
-                        </td>
-                        <td style={{ padding: "var(--space-3) var(--space-4)", fontFamily: "var(--font-mono)", fontSize: 12,
-                          color: "var(--warning)", fontWeight: 600 }}>
-                          {fmtUSD(a.savings_amount_usd, true)}
-                        </td>
-                        <td style={{ padding: "var(--space-3) var(--space-4)", fontSize: 12, color: "var(--fg-2)" }}>{a.attested_by}</td>
-                        <td style={{ padding: "var(--space-3) var(--space-4)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
-                          {fmtDate(a.attested_at)}
-                        </td>
-                        <td style={{ padding: "var(--space-3) var(--space-4)" }}>
-                          <MetricTooltip
-                            content={
-                              state.tone === "success" ? METRICS.approvedPill :
-                              state.tone === "danger"  ? METRICS.rejectedPill :
-                              METRICS.pendingPill
-                            }
-                            placement="bottom-right"
-                            hoverOnly
-                          >
-                            <span
-                              title={a.rejection_reason ? `Rejected: ${a.rejection_reason}` : undefined}
-                              style={{
-                                fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600,
-                                color:
-                                  state.tone === "success" ? "var(--success)" :
-                                  state.tone === "danger"  ? "var(--danger)"  :
-                                  "var(--warning)",
-                                cursor: "help",
-                              }}
-                            >
-                              {state.label}
-                            </span>
-                          </MetricTooltip>
-                        </td>
-                        <td style={{ padding: "var(--space-3) var(--space-4)" }}>
-                          {a.approved ? (
-                            <span style={{ fontSize: 11, color: "var(--fg-3)" }}>—</span>
-                          ) : (
-                            <div style={{ display: "flex", gap: "var(--space-1)" }}>
-                              <button
-                                onClick={() => approveEntry(a.entry_id)}
-                                disabled={busy}
-                                style={{
-                                  padding: "2px 8px", fontSize: 11, fontFamily: "var(--font-mono)",
-                                  background: "transparent", border: "1px solid var(--success)",
-                                  color: "var(--success)", borderRadius: "var(--radius-sm)",
-                                  cursor: busy ? "not-allowed" : "pointer",
-                                }}
-                              >
-                                Approve
-                              </button>
-                              <button
-                                onClick={() => { setRejectingId(a.entry_id); setRejectReason(""); }}
-                                disabled={busy}
-                                style={{
-                                  padding: "2px 8px", fontSize: 11, fontFamily: "var(--font-mono)",
-                                  background: "transparent", border: "1px solid var(--danger)",
-                                  color: "var(--danger)", borderRadius: "var(--radius-sm)",
-                                  cursor: busy ? "not-allowed" : "pointer",
-                                }}
-                              >
-                                Reject
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
+                      <React.Fragment key={r.record_id}>
+                        <tr onClick={() => setSelected(isOpen ? null : r.record_id)}
+                          style={{ borderBottom: isOpen ? "none" : "1px solid var(--border)", background: isOpen ? "var(--bg-subtle)" : "transparent", cursor: "pointer" }}>
+                          <td style={{ ...cell, maxWidth: 240 }}>
+                            <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: isOpen ? "var(--db-lava-600)" : undefined }}>{r.artifact_title ?? r.artifact_id}</div>
+                            <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-3)" }}>{r.artifact_type === "contract" ? "Contract" : "Event"} · {r.artifact_id}</div>
+                          </td>
+                          <td style={{ ...cell, fontSize: 12, color: "var(--fg-2)" }}>{r.supplier_name ?? "—"}</td>
+                          <td style={cell}><Pill>{CLASS_LABEL[r.savings_class]}</Pill></td>
+                          <td style={{ ...cell, fontSize: 12, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{SAVINGS_TYPE_LABEL[r.savings_type] ?? r.savings_type}</td>
+                          <td style={{ ...cell, fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600 }}>{fmtUSD(num(r.savings_amount_usd), true)}</td>
+                          <td style={{ ...cell, fontFamily: "var(--font-mono)", fontSize: 12 }}>{fyq(r.fiscal_year, r.fiscal_quarter)}</td>
+                          <td style={cell}><StatusChip status={r.status} /></td>
+                        </tr>
+                        {isOpen && (
+                          <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                            <td colSpan={7} style={{ padding: 0 }}>
+                              <div style={{ background: "var(--bg-subtle)", borderTop: `2px solid ${cls.color}`, padding: "var(--space-5)" }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--space-5)", marginBottom: "var(--space-4)" }}>
+                                  <div>
+                                    <div style={detailLabel}>Artifact</div>
+                                    <div style={{ fontSize: 13, marginTop: 2 }}>{r.artifact_title ?? r.artifact_id}</div>
+                                    <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)" }}>{r.artifact_type === "contract" ? "Contract" : "Sourcing event"} · {r.artifact_id}</div>
+                                  </div>
+                                  <div>
+                                    <div style={detailLabel}>Savings type</div>
+                                    <div style={{ fontSize: 13, marginTop: 2 }}>{SAVINGS_TYPE_LABEL[r.savings_type] ?? r.savings_type}</div>
+                                    <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)" }}>{CLASS_LABEL[r.savings_class]}</div>
+                                  </div>
+                                  <div>
+                                    <div style={detailLabel}>Baseline → Realized → Savings</div>
+                                    <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, marginTop: 2 }}>
+                                      {fmtUSD(r.baseline_amount_usd, true)} → {fmtUSD(r.realized_amount_usd, true)} → <strong style={{ color: cls.color }}>{fmtUSD(num(r.savings_amount_usd), true)}</strong>
+                                    </div>
+                                  </div>
+                                </div>
+                                {r.baseline_context && <div style={{ fontSize: 13, color: "var(--fg-2)", marginBottom: "var(--space-4)" }}>{r.baseline_context}</div>}
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "var(--space-3)" }}>
+                                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)" }}>
+                                    Submitted by <span style={{ color: "var(--fg-1)" }}>{r.submitted_by}</span> · {fmtDate(r.submitted_at)}
+                                    {r.status === "attested" && r.attested_by && <> · attested by <span style={{ color: "var(--db-green-700)" }}>{r.attested_by}</span></>}
+                                    {r.status === "rejected" && r.rejection_reason && <> · rejected: <span style={{ color: "var(--danger)" }}>{r.rejection_reason}</span></>}
+                                  </div>
+                                  {r.status === "pending" && (
+                                    rejectingId === r.record_id ? (
+                                      <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+                                        <input value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Rejection reason"
+                                          style={{ padding: "var(--space-2) var(--space-3)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", fontSize: 12, minWidth: 220 }} />
+                                        <SecondaryBtn onClick={doReject} disabled={actioning === r.record_id || !rejectReason.trim()}>Confirm reject</SecondaryBtn>
+                                        <SecondaryBtn onClick={() => { setRejectingId(null); setRejectReason(""); }}>Cancel</SecondaryBtn>
+                                      </div>
+                                    ) : (
+                                      <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+                                        {r.submitted_by.toLowerCase() === me.toLowerCase() && (
+                                          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-3)" }}>you submitted this — a different person must attest</span>
+                                        )}
+                                        <PrimaryBtn onClick={() => doAttest(r.record_id)} disabled={actioning === r.record_id || r.submitted_by.toLowerCase() === me.toLowerCase()}>Attest</PrimaryBtn>
+                                        <SecondaryBtn onClick={() => { setRejectingId(r.record_id); setRejectReason(""); }}>Reject</SecondaryBtn>
+                                      </div>
+                                    )
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })}
+                  {rows.length === 0 && (
+                    <tr><td colSpan={7} style={{ ...cell, color: "var(--fg-3)" }}>No savings records match.</td></tr>
+                  )}
                 </tbody>
               </table>
-              </div>
-            )}
-          </Card>
-        )}
-
-        {/* Manual avoidance form */}
-        {formOpen && (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(11,32,38,0.5)", zIndex: 100,
-            display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Card style={{ width: 480, position: "relative" }} accent="var(--db-yellow-600)">
-              <h3 style={{ fontSize: "var(--fs-h4)", marginBottom: "var(--space-4)" }}>Log Cost Avoidance</h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-                <label>
-                  <span style={{ fontSize: 12, color: "var(--fg-2)", display: "block", marginBottom: 4 }}>Savings Amount (USD) *</span>
-                  <input type="number" style={{ width: "100%" }}
-                    value={form.savings_amount_usd ?? ""}
-                    onChange={(e) => setForm((f) => ({ ...f, savings_amount_usd: parseFloat(e.target.value) || 0 }))} />
-                </label>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--space-3)" }}>
-                  <label>
-                    <span style={{ fontSize: 12, color: "var(--fg-2)", display: "block", marginBottom: 4 }}>Fiscal Year *</span>
-                    <input type="number" style={{ width: "100%" }}
-                      value={form.fiscal_year}
-                      onChange={(e) => setForm((f) => ({ ...f, fiscal_year: parseInt(e.target.value) }))} />
-                  </label>
-                  <label>
-                    <span style={{ fontSize: 12, color: "var(--fg-2)", display: "block", marginBottom: 4 }}>Quarter *</span>
-                    <select style={{ width: "100%" }}
-                      value={form.fiscal_quarter}
-                      onChange={(e) => setForm((f) => ({ ...f, fiscal_quarter: parseInt(e.target.value) }))}>
-                      {[1, 2, 3, 4].map((q) => <option key={q} value={q}>Q{q}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    <span style={{ fontSize: 12, color: "var(--fg-2)", display: "block", marginBottom: 4 }}>Segment</span>
-                    <select style={{ width: "100%" }}
-                      value={form.segment_code ?? ""}
-                      onChange={(e) => setForm((f) => ({ ...f, segment_code: e.target.value || null }))}>
-                      <option value="">—</option>
-                      {SEGMENT_OPTIONS.map((s) => (
-                        <option key={s.code} value={s.code}>{s.code}</option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                <label style={{ position: "relative" }}>
-                  <span style={{ fontSize: 12, color: "var(--fg-2)", display: "block", marginBottom: 4 }}>Supplier</span>
-                  <input
-                    style={{ width: "100%" }}
-                    placeholder="Type to search…"
-                    value={supplierQuery || form.supplier_name || ""}
-                    onChange={(e) => {
-                      setSupplierQuery(e.target.value);
-                      // Free-form text — clear linkage until user picks a match.
-                      setForm((f) => ({ ...f, supplier_name: e.target.value, supplier_id: null }));
-                    }}
-                  />
-                  {supplierMatches.length > 0 && supplierQuery && (
-                    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10,
-                      background: "var(--bg)", border: "1px solid var(--border)",
-                      borderRadius: "var(--radius-sm)", maxHeight: 200, overflowY: "auto",
-                      boxShadow: "var(--shadow-2)" }}>
-                      {supplierMatches.map((s) => (
-                        <div
-                          key={s.supplier_id}
-                          onClick={() => {
-                            setForm((f) => ({
-                              ...f,
-                              supplier_id: s.supplier_id,
-                              supplier_name: s.supplier_name,
-                              // Default category to supplier's primary when picking from match.
-                              category_primary: f.category_primary || s.category_primary,
-                            }));
-                            setSupplierQuery("");
-                          }}
-                          style={{ padding: "var(--space-2) var(--space-3)", cursor: "pointer", fontSize: 12,
-                            borderBottom: "1px solid var(--border)" }}
-                        >
-                          <div style={{ color: "var(--fg-1)" }}>{s.supplier_name ?? s.supplier_id}</div>
-                          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-3)" }}>
-                            {s.category_primary ?? "—"} · {s.region ?? "—"}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </label>
-                <label>
-                  <span style={{ fontSize: 12, color: "var(--fg-2)", display: "block", marginBottom: 4 }}>Category</span>
-                  <input style={{ width: "100%" }}
-                    value={form.category_primary ?? ""}
-                    onChange={(e) => setForm((f) => ({ ...f, category_primary: e.target.value }))} />
-                </label>
-                <label>
-                  <span style={{ fontSize: 12, color: "var(--fg-2)", display: "block", marginBottom: 4 }}>Baseline Context</span>
-                  <textarea rows={2} style={{ width: "100%", resize: "vertical" }}
-                    placeholder="e.g. Supplier requested +20%, negotiated to +5%"
-                    value={form.baseline_context ?? ""}
-                    onChange={(e) => setForm((f) => ({ ...f, baseline_context: e.target.value }))} />
-                </label>
-                <div style={{ fontSize: 11, color: "var(--fg-3)", marginTop: 0 }}>
-                  Submitted with attestation; entries are pending until a reviewer approves them.
-                </div>
-                <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "flex-end", marginTop: "var(--space-2)" }}>
-                  <button onClick={() => setFormOpen(false)}
-                    style={{ fontSize: 14, color: "var(--fg-2)", background: "none", border: "none", cursor: "pointer" }}>
-                    Cancel
-                  </button>
-                  <PrimaryBtn onClick={submitAvoidance} disabled={submitting}>
-                    {submitting ? "Submitting…" : "Submit with Attestation"}
-                  </PrimaryBtn>
-                </div>
-              </div>
-            </Card>
-          </div>
-        )}
-
-        {/* Reject reason prompt */}
-        {rejectingId && (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(11,32,38,0.5)", zIndex: 100,
-            display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Card style={{ width: 420, position: "relative" }} accent="var(--danger)">
-              <h3 style={{ fontSize: "var(--fs-h4)", marginBottom: "var(--space-3)" }}>Reject Avoidance Entry</h3>
-              <div style={{ fontSize: 12, color: "var(--fg-2)", marginBottom: "var(--space-3)" }}>
-                A reason is required and will be visible on the entry.
-              </div>
-              <textarea
-                rows={3}
-                style={{ width: "100%", resize: "vertical" }}
-                placeholder="e.g. baseline not auditable — no supplier quote attached"
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                autoFocus
-              />
-              <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "flex-end", marginTop: "var(--space-3)" }}>
-                <button
-                  onClick={() => { setRejectingId(null); setRejectReason(""); }}
-                  style={{ fontSize: 14, color: "var(--fg-2)", background: "none", border: "none", cursor: "pointer" }}
-                >
-                  Cancel
-                </button>
-                <PrimaryBtn
-                  onClick={confirmReject}
-                  disabled={!rejectReason.trim() || actioningId === rejectingId}
-                  style={{ background: "var(--danger)" }}
-                >
-                  {actioningId === rejectingId ? "Rejecting…" : "Confirm Reject"}
-                </PrimaryBtn>
-              </div>
-            </Card>
-          </div>
-        )}
+            </div>
+          )}
+        </Card>
       </div>
     </div>
   );

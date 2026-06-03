@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { BlobBg } from "../components/layout/BlobBg";
 import { PageHero } from "../components/layout/PageHero";
 import { Card } from "../components/layout/Card";
-import { AnimatedTileMark } from "../components/layout/AnimatedTileMark";
 import { StatTile } from "../components/StatTile";
 import { METRICS } from "../components/metricDefinitions";
 import { fmtUSD, fmtPct } from "../format";
@@ -14,34 +13,42 @@ interface HomeProps {
 
 const TILES = [
   {
-    id: "contracts",
-    label: "Contract Burn-Down",
-    desc: "Monitor contract consumption, days-to-expiration, and renewal queue.",
-    kind: "gauge" as const,
+    id: "analytics",
+    label: "Spend Analytics",
+    what: "The executive starting point. A lifecycle funnel (request → order → invoice → paid), a spend-trend chart you can switch between daily, weekly, monthly, and quarterly grains, and composition breakdowns by category, segment, or PR source. Click any bar or supplier to drill in and jump straight to that supplier's scorecard.",
+    how: "See where spend concentrates and where it leaks past management.",
     accent: "var(--db-lava-600)",
     accent2: "var(--db-yellow-600)",
   },
   {
+    id: "contracts",
+    label: "Contracts",
+    what: "Every inbound contract ranked by renewal risk — expiring soon, under-utilized, or already exhausted. Expand a row for its burn-down curve, commercial terms, and the invoices and POs drawing against it.",
+    how: "Get ahead of renewals and catch commitments you're paying for but not consuming.",
+    accent: "var(--db-yellow-600)",
+    accent2: "var(--db-lava-600)",
+  },
+  {
     id: "suppliers",
     label: "Supplier Performance",
-    desc: "Scorecard, on-time payment, DPO, and payment-terms renegotiation targets.",
-    kind: "climb" as const,
+    what: "A scorecard per supplier: trailing spend, on-time payment, DPO, maverick-vs-managed mix, ML-assigned category, top PO commitments, and dimensional attributes. Expand a supplier to model a renegotiation what-if across payment-terms, discount, and under-management levers and see the forecast impact.",
+    how: "Prioritize which supplier relationships to renegotiate.",
     accent: "var(--db-navy-800)",
     accent2: "var(--db-blue-700)",
   },
   {
     id: "savings",
     label: "Cost Savings",
-    desc: "Auto-detected reductions + manual avoidance ledger vs FP&A budget.",
-    kind: "bars" as const,
+    what: "One ledger of realized savings — hard cost reductions and soft cost avoidances — each tied to a sourcing event or contract and tracked as a percentage of addressable spend. Submit a saving, then have a second person attest it (segregation of duties).",
+    how: "Evidence procurement's value with an auditable trail back to the originating artifact.",
     accent: "var(--db-green-700)",
     accent2: "var(--db-yellow-700)",
   },
   {
     id: "chatbot",
     label: "Procurement Chatbot",
-    desc: "Natural-language PR intake: suggest suppliers, check contracts, submit PRs.",
-    kind: "pulse" as const,
+    what: "Procurement in plain language. Find suppliers for a need, pull a supplier profile, surface expiring or under-used contracts, review last quarter's savings, or submit a purchase request — large or regulated buys auto-route to Sourcing & Contracting. Anything outside those flows falls back to Genie over the governed metric views.",
+    how: "Act on procurement and ask questions in one place.",
     accent: "var(--db-lava-600)",
     accent2: "var(--db-maroon-700)",
   },
@@ -68,6 +75,28 @@ export function Home({ onNavigate }: HomeProps) {
           title="Strategic Spend Analytics"
           subtitle="Follow every dollar across the spend lifecycle — source/contract → request → order → invoice → paid — and see what's under management vs. leaking to the tail."
         />
+
+        {/* Powered-by note — pulled to the top as the framing statement: this app
+            is one consumption surface; the value is the governed lakehouse under it. */}
+        <div
+          style={{
+            marginBottom: "var(--space-6)",
+            padding: "var(--space-4) var(--space-5)",
+            border: "1px solid var(--border)",
+            borderLeft: "3px solid var(--db-lava-600)",
+            borderRadius: "var(--radius-lg)",
+            background: "var(--bg-subtle)",
+            boxShadow: "var(--shadow-sm)",
+            lineHeight: "var(--lh-normal)",
+          }}
+        >
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-body-sm)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "var(--tracking-eyebrow)", color: "var(--db-lava-600)" }}>
+            Powered by Databricks
+          </span>
+          <div style={{ marginTop: "var(--space-2)", fontSize: "var(--fs-body)", color: "var(--fg-1)" }}>
+            Every metric resolves through governed Unity Catalog <strong>Metric Views</strong> (one source of truth shared by this app, the AI/BI dashboards, and Genie). The chatbot is a <strong>Genie</strong> Space querying those metric views; spend is synthesized → curated by a <strong>Lakeflow</strong> pipeline; categories come from an <strong>MLflow</strong> classifier; app state persists in <strong>Lakebase</strong>; and every query runs as the signed-in user via <strong>OBO</strong>. This portal is one surface over that lakehouse — not the product.
+          </div>
+        </div>
 
         {/* KPI strip — trailing 12 months, paid invoices only.
             "Managed Spend" = addressable spend with a PR or active contract.
@@ -105,12 +134,24 @@ export function Home({ onNavigate }: HomeProps) {
           />
         </div>
 
-        {/* Feature tiles */}
+        {/* Module overview — what each surface does and how to use it. */}
+        <div style={{ marginBottom: "var(--space-4)" }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-caption)", textTransform: "uppercase", letterSpacing: "var(--tracking-eyebrow)", color: "var(--fg-3)" }}>
+            What you can do here
+          </span>
+          <p style={{ fontSize: "var(--fs-body-sm)", color: "var(--fg-2)", lineHeight: "var(--lh-normal)", marginTop: "var(--space-1)" }}>
+            Five modules cover the spend lifecycle, from a portfolio-level overview down to acting on a single purchase. Select any card to open it.
+          </p>
+        </div>
+
+        {/* Feature tiles — alignItems:start so each card hugs its own content
+            and top-aligns within the row rather than stretching to equal height. */}
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
             gap: "var(--space-4)",
+            alignItems: "start",
           }}
         >
           {TILES.map((t) => (
@@ -121,41 +162,42 @@ export function Home({ onNavigate }: HomeProps) {
               hover
               onClick={() => onNavigate(t.id)}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <h3 style={{ fontSize: "var(--fs-h4)", fontWeight: 700, marginBottom: "var(--space-2)" }}>
-                    {t.label}
-                  </h3>
-                  <p style={{ fontSize: "var(--fs-body-sm)", color: "var(--fg-2)", lineHeight: "var(--lh-normal)" }}>
-                    {t.desc}
-                  </p>
-                </div>
-                <AnimatedTileMark kind={t.kind} accent={t.accent} accent2={t.accent2} />
+              <h3 style={{ fontSize: "var(--fs-h4)", fontWeight: 700, marginBottom: "var(--space-2)" }}>
+                {t.label}
+              </h3>
+              <p style={{ fontSize: "var(--fs-body-sm)", color: "var(--fg-2)", lineHeight: "var(--lh-normal)", margin: 0 }}>
+                {t.what}
+              </p>
+              {/* Divider + "How to use" call-to-action */}
+              <div
+                style={{
+                  marginTop: "var(--space-3)",
+                  paddingTop: "var(--space-3)",
+                  borderTop: "1px solid var(--border)",
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: "var(--space-2)",
+                }}
+              >
+                <span
+                  style={{
+                    flexShrink: 0,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "var(--fs-caption)",
+                    textTransform: "uppercase",
+                    letterSpacing: "var(--tracking-eyebrow)",
+                    fontWeight: 600,
+                    color: t.accent,
+                  }}
+                >
+                  How to use
+                </span>
+                <span style={{ fontSize: "var(--fs-body-sm)", color: "var(--fg-1)", lineHeight: "var(--lh-normal)" }}>
+                  {t.how} <span aria-hidden="true" style={{ color: t.accent, fontWeight: 700 }}>→</span>
+                </span>
               </div>
             </Card>
           ))}
-        </div>
-
-        {/* Powered-by note — this app is one consumption surface; the value is
-            the governed Databricks lakehouse underneath it. */}
-        <div
-          style={{
-            marginTop: "var(--space-6)",
-            padding: "var(--space-4) var(--space-5)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-lg)",
-            background: "var(--bg-subtle)",
-            fontSize: "var(--fs-body-sm)",
-            color: "var(--fg-2)",
-            lineHeight: "var(--lh-normal)",
-          }}
-        >
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-caption)", textTransform: "uppercase", letterSpacing: "var(--tracking-eyebrow)", color: "var(--fg-3)" }}>
-            Powered by Databricks
-          </span>
-          <div style={{ marginTop: "var(--space-2)" }}>
-            Every metric resolves through governed Unity Catalog <strong>Metric Views</strong> (one source of truth shared by this app, the AI/BI dashboards, and Genie). The chatbot is a <strong>Genie</strong> Space querying those metric views; spend is synthesized → curated by a <strong>Lakeflow</strong> pipeline; categories come from an <strong>MLflow</strong> classifier; app state persists in <strong>Lakebase</strong>; and every query runs as the signed-in user via <strong>OBO</strong>. This portal is one surface over that lakehouse — not the product.
-          </div>
         </div>
       </div>
     </div>

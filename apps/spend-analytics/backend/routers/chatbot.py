@@ -1,18 +1,21 @@
 """Procurement Chatbot endpoints — FMAPI tool-use + SSE streaming.
 
-Tools the chatbot can call:
-  1. suggest_supplier(category, segment, top_n)
+Single routing layer: the model picks tools (no force-routing heuristic).
+Tools:
+  1. find_suppliers(category, segment, top_n)
   2. get_active_contract(supplier_id)
   3. price_history(supplier_id, category)
-  4. check_sourcing_threshold(amount) — static $25k sourcing-manager rule
-  5. get_remaining_budget(segment_code, fiscal_year, fiscal_quarter)
-       — real budget vs paid-spend lookup against fact_fpa_budgets
-  6. submit_pr(supplier_id, line_items) — writes to bronze_ariba; ALWAYS requires confirmation
-  7. ask_genie(question) — natural-language analytics via Genie
+  4. expiring_contracts(within_days, max_utilization_pct) — renewal-risk / unused
+  5. savings_summary(fiscal_year?, fiscal_quarter?) — cost savings for a period
+  6. submit_pr(supplier_id, line_items) — faked, MCP-style outcome; ALWAYS confirm first
+  7. ask_genie(question) — open-ended analytics via the Genie space (OBO token)
 
-PR submission guardrails:
-  - Reject any total > $25,000 (sourcing-manager engagement threshold)
-  - Reject regulated suppliers unless the user explicitly overrides
+submit_pr guardrails (faked outcome — no write):
+  - Total > $25,000 → opens a Sourcing intake + routes to Sourcing & Contracting (no PR)
+  - Regulated supplier → routes to Sourcing & Contracting for a compliance-reviewed event
+
+Auth: FMAPI + Genie both run on the caller's OBO token (serving.serving-endpoints
+and dashboards.genie scopes). This runtime exposes no SP M2M creds.
 """
 
 from __future__ import annotations
@@ -27,14 +30,13 @@ from typing import AsyncGenerator
 import urllib.error
 import urllib.request
 
-from databricks.sdk import WorkspaceClient
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..auth import CallerIdentity, caller_identity
 from ..config import get_settings
-from ..db import execute, fetch_all, fetch_one, t12m_supplier_spend_sql
+from ..db import fetch_all, fetch_one
 from ..lakebase import db_conn
 from ..models import ChatMessage, ChatSession, ChatSessionCreate
 
@@ -51,6 +53,18 @@ router = APIRouter(prefix="/chat", tags=["chatbot"])
 # ceiling.
 _GENIE_POLL_INTERVALS = [0.5, 0.5, 0.5, 0.5, 1.0, 1.0, 1.0, 1.0, 2.0]
 _GENIE_POLL_MAX_ATTEMPTS = 60
+
+# PR self-service ceiling — totals above this route to Sourcing & Contracting
+# instead of creating a PR (the submit_pr guardrail).
+_PR_SELF_SERVICE_LIMIT = 25_000
+
+# The 8 spend categories (fact_invoices.true_category_primary) — the only valid
+# find_suppliers categories. dim_supplier.category_primary is a different, coarser
+# taxonomy that does NOT align, so we rank by invoiced spend category instead.
+_SPEND_CATEGORIES = [
+    "Direct_Materials_Components", "Facilities_GA", "IT_Telecom", "Logistics",
+    "MRO_Field_Services", "Professional_Services", "Raw_Materials", "Software_Cloud",
+]
 
 
 def _genie_poll_interval(attempt: int) -> float:
@@ -81,43 +95,69 @@ def _resolve_genie_space_id(genie_request, token: str, title: str) -> str | None
             break
     return None
 
-_SYSTEM_PROMPT = """You are the Spend Analytics Assistant for the Strategic Spend Analytics.
-You help sourcing managers and buyers find the right suppliers, check active contracts,
-understand price history, submit purchase requests, and explore spend analytics.
+_SYSTEM_PROMPT = """You are the Spend Analytics Assistant for Strategic Spend Analytics — a
+procurement agent that helps sourcing managers and buyers take action and get answers.
 
-You have access to these tools:
-- suggest_supplier: find candidate suppliers by category and segment
-- get_active_contract: check for active contracts with a supplier
-- price_history: review historical unit prices for a category/supplier
-- check_sourcing_threshold: verify if an amount needs sourcing-manager escalation (static $25k rule)
-- get_remaining_budget: look up the remaining FP&A budget for a segment/quarter (budget minus paid spend)
-- submit_pr: submit a purchase request (always confirm with the user first)
-- ask_genie: answer open-ended analytical questions about procurement spend, suppliers, contracts, or savings using natural language SQL (Strategic Spend Analytics Genie Space)
+Tools:
+- find_suppliers: recommend suppliers for a need. The `category` MUST be one of these 8 spend categories: Direct_Materials_Components, Facilities_GA, IT_Telecom, Logistics, MRO_Field_Services, Professional_Services, Raw_Materials, Software_Cloud. Map the user's need to the closest one — e.g. monitors/laptops/networking/phones/hardware → IT_Telecom; SaaS/licenses/cloud → Software_Cloud; office/cleaning/facilities → Facilities_GA; shipping/freight/warehousing → Logistics; consulting/legal/audit → Professional_Services; maintenance/repair/field service → MRO_Field_Services; components/parts/assemblies → Direct_Materials_Components; metals/polymers/chemicals → Raw_Materials. Do NOT pass the raw product name.
+- supplier_profile: a specific supplier's scorecard (spend, on-time %, DPO, maverick %, terms, top categories, active contracts). Use whenever the user asks about ONE named supplier (pass supplier_id from a prior find_suppliers result, or supplier_name).
+- get_active_contract: check a supplier's active contracts.
+- price_history: recent unit prices paid to a supplier for a category.
+- expiring_contracts: contracts expiring soon AND under-utilized (renewal risk / unused commitments).
+- savings_summary: cost savings for a fiscal period (e.g. "last quarter").
+- submit_pr: submit a purchase request. Large spend is auto-routed to Sourcing & Contracting.
+- ask_genie: answer ANY open-ended analytics question about spend, suppliers, contracts, or savings via the governed Genie space. Use this whenever the dedicated tools don't directly cover the question.
 
 Rules:
-- ALWAYS show a confirmation summary and ask the user to confirm before calling submit_pr.
-- NEVER submit a PR totaling more than $25,000 — tell the user they must escalate to a sourcing manager.
-- NEVER suggest regulated suppliers for negotiation targets.
-- When a buyer is sizing a PR against budget, prefer get_remaining_budget over check_sourcing_threshold — the former queries actual FP&A budget vs paid spend; the latter only enforces the static $25k policy threshold.
-- Keep responses concise. Use bullet points for supplier suggestions.
-- Use ask_genie for analytical questions like spend trends, rankings, breakdowns, or anything that requires querying data that isn't directly served by the other tools.
-- If you cannot find a relevant supplier or contract, say so clearly.
+- Before calling submit_pr, show a one-line confirmation (supplier, items, total) and ask the user to confirm.
+- submit_pr enforces a $25,000 self-service limit. Above it, it does NOT create a PR — it opens a Sourcing intake and routes to Sourcing & Contracting. Relay that outcome to the user.
+- Never recommend regulated suppliers as sourcing/negotiation targets.
+- Prefer the dedicated tools (find_suppliers, supplier_profile, get_active_contract, expiring_contracts, savings_summary, submit_pr). Use ask_genie ONLY for open-ended DATA analytics not covered by them (spend trends, breakdowns, rankings).
+- Do NOT use any tool for meta or conversational requests (e.g. "summarize this chat", "what did I just ask", "give me the transcript"). Answer those directly from the conversation.
+- ALWAYS identify suppliers by supplier_id, never by name. find_suppliers returns a supplier_id for every row — when the user picks one of those suppliers (by name, rank, or "that one"), reuse its supplier_id verbatim in supplier_profile / get_active_contract / price_history / submit_pr. Do NOT re-run find_suppliers and do NOT pass supplier_name when you already have the id. Pass supplier_name to supplier_profile only for a supplier the user names cold that was never in a prior result.
+
+Output style:
+- Use light Markdown for readability: **bold** for labels/key figures, "-" bullet lists, numbered lists, and Markdown tables for tabular data (e.g. ranked supplier lists or a profile scorecard). Keep tables compact.
+- Do NOT use emojis or decorative symbols (no checkmarks, warning signs, etc.).
+- Be concise and businesslike — no filler, no "Sure!"/"Here's", no exclamation marks. Lead with the answer.
+- A short one-line intro before a table/list is fine; end with a brief next-step question only when useful.
 """
 
 _TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "suggest_supplier",
-            "description": "Find candidate suppliers for a spend category and optional segment. Returns top-N non-maverick, non-regulated suppliers with payment terms.",
+            "name": "find_suppliers",
+            "description": "Recommend non-regulated suppliers ranked by paid spend in a category. `category` MUST be one of: Direct_Materials_Components, Facilities_GA, IT_Telecom, Logistics, MRO_Field_Services, Professional_Services, Raw_Materials, Software_Cloud. Map the need to the closest (e.g. monitors/laptops/networking → IT_Telecom; software/SaaS → Software_Cloud; office/cleaning → Facilities_GA). Never pass a raw product name like 'monitors'.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "category": {"type": "string", "description": "Spend category (primary or secondary)"},
-                    "segment": {"type": "string", "description": "segment code (optional)"},
-                    "top_n": {"type": "integer", "default": 3},
+                    "category": {
+                        "type": "string",
+                        "enum": [
+                            "Direct_Materials_Components", "Facilities_GA", "IT_Telecom", "Logistics",
+                            "MRO_Field_Services", "Professional_Services", "Raw_Materials", "Software_Cloud",
+                        ],
+                        "description": "One of the 8 spend categories the need maps to.",
+                    },
+                    "region": {"type": "string", "description": "Optional region filter: NA, EMEA, APAC."},
+                    "top_n": {"type": "integer", "default": 4},
                 },
                 "required": ["category"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "supplier_profile",
+            "description": "Get a single supplier's scorecard: region, payment terms, regulated flag, T12M paid spend, on-time payment %, avg DPO, maverick %, managed %, top spend categories, and active-contract count. Pass supplier_id if known, else supplier_name. Use when the user asks about a specific supplier.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "supplier_id": {"type": "string"},
+                    "supplier_name": {"type": "string"},
+                },
             },
         },
     },
@@ -128,9 +168,7 @@ _TOOLS = [
             "description": "Look up active Statement of Work or Framework contracts for a supplier.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "supplier_id": {"type": "string"},
-                },
+                "properties": {"supplier_id": {"type": "string"}},
                 "required": ["supplier_id"],
             },
         },
@@ -153,45 +191,28 @@ _TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "check_sourcing_threshold",
-            "description": "Check whether an amount exceeds the $25,000 sourcing-manager engagement threshold. This is a static policy rule, NOT a budget check. Use get_remaining_budget for actual budget capacity.",
+            "name": "expiring_contracts",
+            "description": "List active contracts that are expiring soon AND under-utilized (low % of committed spend consumed) — the renewal-risk / unused-commitment view. Use for questions like 'which contracts are about to expire and haven't been used'.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "amount": {"type": "number"},
-                    "segment": {"type": "string"},
+                    "within_days": {"type": "integer", "default": 120, "description": "expiration horizon in days"},
+                    "max_utilization_pct": {"type": "integer", "default": 50, "description": "only contracts consumed below this %"},
                 },
-                "required": ["amount"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "get_remaining_budget",
-            "description": "Look up remaining FP&A budget for a segment and fiscal period. Returns budget_usd, paid_spend_usd, and remaining_usd from fact_fpa_budgets minus fact_invoices paid spend. Use this to size a PR against actual budget capacity.",
+            "name": "savings_summary",
+            "description": "Summarize procurement cost savings for a fiscal period. Omit fiscal_year/fiscal_quarter to get the most recent period. Use for 'cost savings from last quarter' type questions.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "segment_code": {"type": "string", "description": "segment code (AD, PA, SB, ET, CORP)"},
                     "fiscal_year": {"type": "integer"},
                     "fiscal_quarter": {"type": "integer", "description": "1, 2, 3, or 4"},
                 },
-                "required": ["segment_code", "fiscal_year", "fiscal_quarter"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "ask_genie",
-            "description": "Answer an open-ended analytical question about procurement spend, supplier performance, contracts, or cost savings using the Strategic Spend Analytics Genie Space. Use when the user asks about spend trends, category breakdowns, supplier rankings, contract utilization, savings summaries, or any data question that the other tools don't directly cover.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "question": {"type": "string", "description": "The natural language question to ask the Genie Space."},
-                },
-                "required": ["question"],
             },
         },
     },
@@ -199,11 +220,12 @@ _TOOLS = [
         "type": "function",
         "function": {
             "name": "submit_pr",
-            "description": "Submit a purchase request to Ariba (demo: writes to bronze_ariba). ONLY call after user confirms.",
+            "description": "Submit a purchase request (demo action via the Procurement integration). ONLY call after the user confirms. Totals over $25,000 are auto-routed to Sourcing & Contracting instead of creating a PR.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "supplier_id": {"type": "string"},
+                    "supplier_name": {"type": "string"},
                     "line_items": {
                         "type": "array",
                         "items": {
@@ -223,46 +245,149 @@ _TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_genie",
+            "description": "Answer an open-ended analytical question about spend, supplier performance, contracts, or cost savings via the Strategic Spend Analytics Genie space. Use for trends, breakdowns, rankings, or anything the other tools don't directly cover.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "The natural language question to ask Genie."},
+                },
+                "required": ["question"],
+            },
+        },
+    },
 ]
 
 
 def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
     s = get_settings()
     try:
-        if name == "suggest_supplier":
-            category = args["category"]
-            top_n = int(args.get("top_n", 3))
-            # Recommend in-category suppliers we already transact with whose
-            # measured maverick % is low (<15%). measured_maverick_pct comes from
-            # the governed mv_supplier_performance view (spend NOT under contract
-            # AND not competitively sourced), so it matches the Suppliers
-            # scorecard exactly. Only suppliers with T12M paid activity appear
-            # (the view is invoice-grounded). The optional `segment` arg is no
-            # longer a filter — category is the selector — but is still accepted.
+        if name == "find_suppliers":
+            category = (args.get("category") or "").strip()
+            region = (args.get("region") or "").strip()
+            top_n = int(args.get("top_n", 4))
+            region_clause = "AND UPPER(ds.region) = UPPER(?)" if region else ""
+            # Rank suppliers by PAID spend in the category they've actually been
+            # invoiced in (true_category_primary/secondary — the 8-value spend
+            # taxonomy). NB: dim_supplier.category_primary is a DIFFERENT, coarser
+            # taxonomy that doesn't align with spend categories, and line
+            # descriptions are synthetic — so neither is a reliable selector.
+            # Non-regulated only. The category should be one of _SPEND_CATEGORIES;
+            # a partial term (e.g. 'telecom') still matches via LIKE.
+            like = f"%{category.lower()}%"
             rows = fetch_all(
                 caller,
                 f"""
-                SELECT supplier_id, supplier_name, payment_terms, region,
-                       trailing_12m_spend, measured_maverick_pct
-                FROM (
-                    SELECT
-                        supplier_id, supplier_name, supplier_region AS region,
-                        payment_terms, supplier_category, is_regulated,
-                        ROUND(MEASURE(trailing_spend), 2)              AS trailing_12m_spend,
-                        ROUND(MEASURE(measured_maverick_pct) * 100, 1) AS measured_maverick_pct
-                    FROM {s.gold}.mv_supplier_performance
-                    WHERE invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
-                    GROUP BY ALL
-                )
-                WHERE supplier_category LIKE ?
-                  AND COALESCE(is_regulated, FALSE) = FALSE
-                  AND measured_maverick_pct < 15.0
-                ORDER BY trailing_12m_spend DESC NULLS LAST
+                SELECT
+                    fi.supplier_id,
+                    MAX(ds.supplier_name)              AS supplier_name,
+                    MAX(ds.region)                     AS region,
+                    MAX(ds.payment_terms)              AS payment_terms,
+                    MAX(fi.true_category_primary)      AS category,
+                    ROUND(SUM(fi.amount), 2)           AS category_spend_usd,
+                    COUNT(*)                           AS line_count
+                FROM {s.gold}.fact_invoices fi
+                JOIN {s.gold}.dim_supplier ds ON fi.supplier_id = ds.supplier_id
+                WHERE fi.payment_status = 'PAID'
+                  AND COALESCE(ds.is_regulated_supplier, FALSE) = FALSE
+                  AND (LOWER(fi.true_category_primary) LIKE ? OR LOWER(fi.true_category_secondary) LIKE ?)
+                  {region_clause}
+                GROUP BY fi.supplier_id
+                ORDER BY category_spend_usd DESC
                 LIMIT ?
                 """,
-                [f"%{category}%", top_n],
+                [like, like] + ([region] if region else []) + [top_n],
             )
-            return json.dumps(rows, default=str)
+            if not rows:
+                return json.dumps({
+                    "found": False,
+                    "message": f"No suppliers matched '{category}'{f' in {region}' if region else ''}.",
+                    "valid_categories": _SPEND_CATEGORIES,
+                    "hint": "Map the user's need to the closest category above and call find_suppliers again.",
+                }, default=str)
+            return json.dumps({"category_query": category, "region": region or "all", "suppliers": rows}, default=str)
+
+        elif name == "supplier_profile":
+            supplier_id = (args.get("supplier_id") or "").strip()
+            supplier_name = (args.get("supplier_name") or "").strip()
+            if not supplier_id and supplier_name:
+                # Resolve a name → the highest paid-spend supplier carrying it.
+                # Supplier names can collide across ids, so pick the most material
+                # match deterministically rather than an arbitrary first row.
+                hit = fetch_one(
+                    caller,
+                    f"""
+                    SELECT fi.supplier_id
+                    FROM {s.gold}.fact_invoices fi
+                    JOIN {s.gold}.dim_supplier ds ON fi.supplier_id = ds.supplier_id
+                    WHERE LOWER(ds.supplier_name) LIKE ? AND fi.payment_status = 'PAID'
+                    GROUP BY fi.supplier_id
+                    ORDER BY SUM(fi.amount) DESC
+                    LIMIT 1
+                    """,
+                    [f"%{supplier_name.lower()}%"],
+                )
+                supplier_id = (hit or {}).get("supplier_id", "")
+            if not supplier_id:
+                return json.dumps({"found": False, "message": f"No supplier found matching '{supplier_name}'."})
+            # Static supplier-master attributes (region, terms, regulated) come from
+            # dim_supplier — the SAME source find_suppliers uses — so the two tools
+            # never disagree on region. The metric view supplies the measures only.
+            attrs = fetch_one(
+                caller,
+                f"""
+                SELECT supplier_name, region, payment_terms,
+                       is_regulated_supplier AS is_regulated
+                FROM {s.gold}.dim_supplier WHERE supplier_id = ?
+                """,
+                [supplier_id],
+            ) or {}
+            measures = fetch_one(
+                caller,
+                f"""
+                SELECT ROUND(MEASURE(trailing_spend), 2)               AS t12m_spend,
+                       ROUND(MEASURE(on_time_payment_pct) * 100, 1)    AS on_time_pct,
+                       ROUND(MEASURE(avg_dpo), 1)                      AS avg_dpo,
+                       ROUND(MEASURE(measured_maverick_pct) * 100, 1)  AS maverick_pct,
+                       ROUND(MEASURE(managed_spend_pct) * 100, 1)      AS managed_pct
+                FROM {s.gold}.mv_supplier_performance
+                WHERE supplier_id = ? AND invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
+                GROUP BY ALL
+                """,
+                [supplier_id],
+            ) or {}
+            header = {"supplier_id": supplier_id, **attrs, **measures}
+            top_categories = fetch_all(
+                caller,
+                f"""
+                SELECT true_category_primary AS category, ROUND(SUM(amount), 2) AS spend_usd
+                FROM {s.gold}.fact_invoices
+                WHERE supplier_id = ? AND payment_status = 'PAID'
+                  AND invoice_date >= DATE_SUB(CURRENT_DATE(), 365)
+                GROUP BY true_category_primary ORDER BY spend_usd DESC LIMIT 3
+                """,
+                [supplier_id],
+            )
+            contracts = fetch_one(
+                caller,
+                f"""
+                SELECT COUNT(*) AS active_contracts
+                FROM {s.silver}.contract_inbound
+                WHERE supplier_id = ? AND status = 'Active'
+                  AND contract_type IN ('Statement of Work', 'Framework')
+                  AND effective_date <= CURRENT_DATE() AND expiration_date >= CURRENT_DATE()
+                """,
+                [supplier_id],
+            ) or {}
+            return json.dumps({
+                "found": bool(attrs),
+                "profile": header,
+                "top_categories": top_categories,
+                "active_contracts": int(contracts.get("active_contracts") or 0),
+            }, default=str)
 
         elif name == "get_active_contract":
             supplier_id = args["supplier_id"]
@@ -310,135 +435,171 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
             )
             return json.dumps(rows, default=str)
 
-        elif name == "check_sourcing_threshold":
-            amount = float(args["amount"])
-            if amount > 25_000:
-                return json.dumps({
-                    "exceeds_threshold": True,
-                    "threshold": 25000,
-                    "rule": "policy",
-                    "message": "Amount exceeds the $25,000 sourcing-manager threshold. This PR requires sourcing-manager approval before submission.",
-                })
-            return json.dumps({"exceeds_threshold": False, "threshold": 25000, "rule": "policy"})
-
-        elif name == "get_remaining_budget":
-            segment_code = args["segment_code"]
-            fy = int(args["fiscal_year"])
-            fq = int(args["fiscal_quarter"])
-            # Compare planned operating-expense budget (COGS + SGA in the
-            # FP&A planning schema — there's no single 'EXPENSE' account_type)
-            # vs realized (paid) spend for the same segment/period. Returns
-            # the genuine remaining capacity — the previous
-            # check_budget_threshold tool only checked a hardcoded $25k
-            # policy rule and never queried budgets at all.
-            row = fetch_one(
+        elif name == "expiring_contracts":
+            within_days = int(args.get("within_days", 120))
+            max_util = float(args.get("max_utilization_pct", 50))
+            # Active contracts expiring within the horizon AND consumed below the
+            # utilization cap — i.e. renewal-risk + unused commitments. Uses the
+            # contract's own committed/actual figures (silver.contract_inbound).
+            rows = fetch_all(
                 caller,
                 f"""
-                WITH b AS (
-                    SELECT SUM(amount_usd) AS budget_usd
-                    FROM {s.gold}.fact_fpa_budgets
-                    WHERE segment_code = ?
-                      AND fiscal_year  = ?
-                      AND fiscal_quarter = ?
-                      AND account_type IN ('COGS', 'SGA')
-                ),
-                spent AS (
-                    SELECT SUM(amount) AS paid_spend_usd
-                    FROM {s.gold}.fact_invoices
-                    WHERE segment_code = ?
-                      AND fiscal_year  = ?
-                      AND fiscal_quarter = ?
-                      AND payment_status = 'PAID'
-                )
-                SELECT
-                    COALESCE(b.budget_usd, 0)       AS budget_usd,
-                    COALESCE(spent.paid_spend_usd, 0) AS paid_spend_usd,
-                    COALESCE(b.budget_usd, 0) - COALESCE(spent.paid_spend_usd, 0)
-                        AS remaining_usd
-                FROM b CROSS JOIN spent
+                SELECT contract_workspace_id, title, supplier_id,
+                       expiration_date,
+                       DATEDIFF(expiration_date, CURRENT_DATE()) AS days_to_expiry,
+                       ROUND(total_committed_spend, 0) AS committed_usd,
+                       ROUND(100.0 * actual_spend_to_date / NULLIF(total_committed_spend, 0), 1)
+                           AS pct_consumed
+                FROM {s.silver}.contract_inbound
+                WHERE contract_type IN ('Statement of Work', 'Framework')
+                  AND status = 'Active'
+                  AND expiration_date BETWEEN CURRENT_DATE() AND DATE_ADD(CURRENT_DATE(), ?)
+                  AND COALESCE(100.0 * actual_spend_to_date / NULLIF(total_committed_spend, 0), 0) < ?
+                ORDER BY days_to_expiry ASC
+                LIMIT 15
                 """,
-                [segment_code, fy, fq, segment_code, fy, fq],
+                [within_days, max_util],
             )
-            row = row or {}
             return json.dumps({
-                "segment_code": segment_code,
+                "within_days": within_days,
+                "max_utilization_pct": max_util,
+                "count": len(rows),
+                "contracts": rows,
+            }, default=str)
+
+        elif name == "savings_summary":
+            fy = args.get("fiscal_year")
+            fq = args.get("fiscal_quarter")
+            # Default to the most recent period present in the savings fact.
+            if not fy or not fq:
+                latest = fetch_one(
+                    caller,
+                    f"""
+                    SELECT fiscal_year, fiscal_quarter
+                    FROM {s.gold}.fact_cost_savings
+                    ORDER BY fiscal_year DESC, fiscal_quarter DESC
+                    LIMIT 1
+                    """,
+                ) or {}
+                fy = fy or latest.get("fiscal_year")
+                fq = fq or latest.get("fiscal_quarter")
+            head = fetch_one(
+                caller,
+                f"""
+                SELECT ROUND(SUM(savings_amount_usd), 2) AS total_savings_usd,
+                       COUNT(*) AS event_count,
+                       ROUND(AVG(savings_rate) * 100, 1) AS avg_savings_rate_pct
+                FROM {s.gold}.fact_cost_savings
+                WHERE fiscal_year = ? AND fiscal_quarter = ?
+                """,
+                [fy, fq],
+            ) or {}
+            by_category = fetch_all(
+                caller,
+                f"""
+                SELECT category_primary,
+                       ROUND(SUM(savings_amount_usd), 2) AS savings_usd
+                FROM {s.gold}.fact_cost_savings
+                WHERE fiscal_year = ? AND fiscal_quarter = ?
+                GROUP BY category_primary
+                ORDER BY savings_usd DESC
+                LIMIT 5
+                """,
+                [fy, fq],
+            )
+            return json.dumps({
                 "fiscal_year": fy,
                 "fiscal_quarter": fq,
-                "budget_usd": float(row.get("budget_usd") or 0),
-                "paid_spend_usd": float(row.get("paid_spend_usd") or 0),
-                "remaining_usd": float(row.get("remaining_usd") or 0),
-                "source": f"{s.gold}.fact_fpa_budgets (COGS+SGA) vs {s.gold}.fact_invoices (PAID)",
-            })
+                "total_savings_usd": float(head.get("total_savings_usd") or 0),
+                "event_count": int(head.get("event_count") or 0),
+                "avg_savings_rate_pct": float(head.get("avg_savings_rate_pct") or 0),
+                "top_categories": by_category,
+            }, default=str)
 
         elif name == "submit_pr":
+            # Demo action: this fabricates the outcome the way a Procurement MCP
+            # server would surface a side-effect — no real write. Two guardrails:
+            # large spend routes to Sourcing & Contracting; regulated suppliers
+            # route to Compliance. Otherwise it "creates" a PR.
             supplier_id = args["supplier_id"]
-            line_items = args["line_items"]
-            segment = args.get("segment", "CORP")
-            total = sum(float(li.get("unit_price", 0)) * float(li.get("quantity", 1)) for li in line_items)
+            supplier_name = args.get("supplier_name") or supplier_id
+            line_items = args.get("line_items") or []
+            total = round(sum(float(li.get("unit_price", 0)) * float(li.get("quantity", 1)) for li in line_items), 2)
+            line_count = len(line_items)
+            first_desc = (line_items[0].get("description") if line_items else "") or "items"
+            summary = first_desc if line_count <= 1 else f"{first_desc} (+{line_count - 1} more lines)"
 
-            # Guardrail 1: amount
-            if total > 25_000:
-                return json.dumps({
-                    "error": "PR rejected: total exceeds $25,000 sourcing-manager threshold.",
-                    "total": total,
-                })
-
-            # Guardrail 2: regulated supplier
+            # Guardrail: regulated supplier → Compliance/Sourcing.
             supplier = fetch_one(
                 caller,
                 f"SELECT is_regulated_supplier FROM {s.gold}.dim_supplier WHERE supplier_id = ?",
                 [supplier_id],
             )
             if supplier and supplier.get("is_regulated_supplier"):
+                intake_id = f"SR-{datetime.utcnow():%Y}-{uuid.uuid4().hex[:5].upper()}"
                 return json.dumps({
-                    "error": "PR rejected: supplier is flagged as regulated. Contact sourcing manager to override.",
-                    "supplier_id": supplier_id,
+                    "action": "route_to_sourcing",
+                    "system": "Sourcing & Contracting (via Procurement MCP)",
+                    "status": "escalated",
+                    "intake_id": intake_id,
+                    "supplier_name": supplier_name,
+                    "total_usd": total,
+                    "message": (
+                        f"{supplier_name} is a regulated supplier — direct PRs aren't allowed. "
+                        f"Opened Sourcing intake {intake_id} and routed to Sourcing & Contracting for a compliance-reviewed event. No PR was created."
+                    ),
                 })
 
-            pr_number = f"PR-{uuid.uuid4().hex[:8].upper()}"
-            pr_header_id = f"EBAN-{uuid.uuid4().hex[:10].upper()}"
-            now_str = datetime.utcnow().isoformat()
+            # Guardrail: large spend → Sourcing & Contracting.
+            if total > _PR_SELF_SERVICE_LIMIT:
+                intake_id = f"SR-{datetime.utcnow():%Y}-{uuid.uuid4().hex[:5].upper()}"
+                return json.dumps({
+                    "action": "route_to_sourcing",
+                    "system": "Sourcing & Contracting (via Procurement MCP)",
+                    "status": "escalated",
+                    "intake_id": intake_id,
+                    "supplier_name": supplier_name,
+                    "total_usd": total,
+                    "threshold_usd": _PR_SELF_SERVICE_LIMIT,
+                    "message": (
+                        f"${total:,.0f} exceeds the ${_PR_SELF_SERVICE_LIMIT:,.0f} self-service limit. "
+                        f"Opened Sourcing intake {intake_id} ({summary}, {supplier_name}) and routed to Sourcing & Contracting "
+                        f"to run a competitive event — no PR was created."
+                    ),
+                })
 
-            # Demo write: INSERT into bronze_ariba (pipeline picks up on next refresh)
-            for i, li in enumerate(line_items, 1):
-                execute(
-                    caller,
-                    f"""
-                    INSERT INTO {s.catalog}.bronze_ariba.EBAN_PR_LINE
-                    (pr_header_id, pr_number, line_number, description, quantity,
-                     unit_price, amount, category, segment_code, supplier_id,
-                     status, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?)
-                    """,
-                    [
-                        pr_header_id, pr_number, i,
-                        li.get("description", ""), float(li.get("quantity", 1)),
-                        float(li.get("unit_price", 0)),
-                        float(li.get("quantity", 1)) * float(li.get("unit_price", 0)),
-                        li.get("category", ""), segment, supplier_id, now_str,
-                    ],
-                )
-
+            # Within limit → "create" the PR.
+            pr_number = f"PR-{datetime.utcnow():%Y}-{uuid.uuid4().hex[:5].upper()}"
             return json.dumps({
-                "success": True,
+                "action": "create_purchase_request",
+                "system": "SAP Ariba (via Procurement MCP)",
+                "status": "submitted",
                 "pr_number": pr_number,
-                "total": round(total, 2),
-                "line_count": len(line_items),
-                "message": f"Purchase request {pr_number} submitted successfully. The lakehouse pipeline will pick it up on the next refresh.",
+                "supplier_id": supplier_id,
+                "supplier_name": supplier_name,
+                "total_usd": total,
+                "line_count": line_count,
+                "routed_to": "Accounts Payable (3-way match)",
+                "message": (
+                    f"Submitted {pr_number} to SAP Ariba via the Procurement MCP — "
+                    f"{summary}, {supplier_name}, ${total:,.0f}. Routed to AP for 3-way match."
+                ),
             })
 
         elif name == "ask_genie":
             import time, urllib.request, urllib.error
             question = args["question"]
             log.info("ask_genie invoked for question: %s", question[:200])
-            # Resolved by title (s.genie_space_title) once a token is available,
-            # below; s.genie_space_id is an optional explicit override.
+            # Genie runs as the calling user (OBO token has the dashboards.genie
+            # scope). This app runtime does not expose SP M2M creds, so there is
+            # no SP path. s.genie_space_id is an optional explicit override;
+            # otherwise resolve by title.
             space_id = s.genie_space_id
-            if not s.sp_client_id or not s.sp_client_secret:
-                log.warning("ask_genie missing APP_SP_CLIENT_ID/APP_SP_CLIENT_SECRET")
+            obo_token = caller.access_token
+            if not obo_token:
                 return json.dumps({
-                    "error": "Service principal credentials are missing for Genie.",
-                    "detail": "APP_SP_CLIENT_ID and APP_SP_CLIENT_SECRET must be set in the app runtime.",
+                    "error": "No user token available for Genie.",
+                    "hint": "Genie requires the OBO context (dashboards.genie scope).",
                 })
             host = s.databricks_host.rstrip("/")
             if not host.startswith("http"):
@@ -587,57 +748,25 @@ def _run_tool(name: str, args: dict, caller: CallerIdentity) -> str:
                     "auth_mode": auth_mode,
                 }
 
-            # Try SP M2M token first; fall back to user OBO token (has dashboards.genie scope).
-            sp_token = (
-                _get_sp_token(s.databricks_host, s.sp_client_id, s.sp_client_secret)
-                if s.sp_client_id and s.sp_client_secret
-                else None
-            )
-
             # Resolve the space by title (cached) unless explicitly pinned via
-            # GENIE_SPACE_ID. run_genie_query closes over `space_id`, so setting it
-            # here updates every downstream request.
+            # GENIE_SPACE_ID. run_genie_query closes over `space_id`.
             if not space_id:
-                resolve_token = sp_token or caller.access_token
-                if resolve_token:
-                    space_id = _resolve_genie_space_id(genie_request, resolve_token, s.genie_space_title)
+                space_id = _resolve_genie_space_id(genie_request, obo_token, s.genie_space_title)
                 if not space_id:
                     return json.dumps({
                         "error": f"No Genie space titled '{s.genie_space_title}' was found.",
                         "hint": "Provision it with `databricks bundle run setup` (or set GENIE_SPACE_ID).",
                     })
 
-            if sp_token:
-                sp_result = run_genie_query(sp_token, "app_service_principal")
-                if sp_result.get("ok"):
-                    log.info("ask_genie succeeded via service principal question_sig=%s", question_sig)
-                    return json.dumps(sp_result)
-                log.warning(
-                    "ask_genie failed via service principal question_sig=%s error=%s — trying OBO",
-                    question_sig,
-                    sp_result.get("error"),
-                )
-
-            obo_token = caller.access_token
-            if obo_token:
-                obo_result = run_genie_query(obo_token, "user_obo")
-                if obo_result.get("ok"):
-                    log.info("ask_genie succeeded via OBO token question_sig=%s", question_sig)
-                    return json.dumps(obo_result)
-                log.warning(
-                    "ask_genie failed via OBO token question_sig=%s error=%s",
-                    question_sig,
-                    obo_result.get("error"),
-                )
-                return json.dumps({
-                    "error": "Genie query failed for both service principal and user OBO token.",
-                    "detail": obo_result,
-                    "hint": "Ensure the Genie Space ID is correct and the SP/user has CAN_VIEW access.",
-                })
-
+            result = run_genie_query(obo_token, "user_obo")
+            if result.get("ok"):
+                log.info("ask_genie succeeded question_sig=%s", question_sig)
+                return json.dumps(result)
+            log.warning("ask_genie failed question_sig=%s error=%s", question_sig, result.get("error"))
             return json.dumps({
-                "error": "No valid token available for Genie (SP credentials failed, no OBO token).",
-                "hint": "Deploy with OBO scopes including dashboards.genie.",
+                "error": result.get("error", "Genie query failed."),
+                "detail": result.get("detail"),
+                "hint": "Ensure the Genie space exists and you have CAN_VIEW access.",
             })
 
         else:
@@ -679,6 +808,25 @@ async def list_sessions(caller: CallerIdentity = Depends(caller_identity)) -> li
     except Exception:
         log.debug("Lakebase unavailable — returning empty session list")
         return []
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    caller: CallerIdentity = Depends(caller_identity),
+) -> dict:
+    """Delete a conversation (and its messages via ON DELETE CASCADE). Scoped to
+    the owner so a user can only delete their own sessions."""
+    try:
+        async with db_conn(caller) as conn:
+            await conn.execute(
+                "DELETE FROM chatbot_sessions WHERE session_id = %s AND user_email = %s",
+                (session_id, caller.email),
+            )
+    except Exception as exc:
+        log.warning("Failed to delete session %s: %s", session_id, exc)
+        raise HTTPException(503, "Could not delete the conversation (Lakebase unavailable).")
+    return {"ok": True, "session_id": session_id}
 
 
 @router.get("/sessions/{session_id}/messages", response_model=list[ChatMessage])
@@ -736,84 +884,8 @@ async def send_message(
     )
 
 
-import time as _time
-_sp_token_cache: dict = {}
-
-
-def _get_sp_token(host: str, client_id: str, client_secret: str) -> str | None:
-    """Obtain an M2M OAuth token using the app's SP credentials.
-
-    Caches the token and refreshes 5 minutes before expiry to avoid
-    per-request token fetches on back-to-back messages.
-
-    Returns None (instead of raising) if the OIDC call fails for any reason
-    so callers can fall back to the user's OBO access_token.
-    """
-    import urllib.request as _ur2
-    import urllib.parse as _up
-
-    now = _time.time()
-    cached = _sp_token_cache.get("token")
-    if cached and _sp_token_cache.get("expires_at", 0) > now + 300:
-        return cached
-
-    if not host.startswith("http"):
-        host = f"https://{host}"
-    data = _up.urlencode({
-        "grant_type": "client_credentials",
-        "scope": "all-apis",
-        "client_id": client_id,
-        "client_secret": client_secret,
-    }).encode()
-    req = _ur2.Request(
-        f"{host}/oidc/v1/token", data=data,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        method="POST",
-    )
-    try:
-        with _ur2.urlopen(req, timeout=15) as resp:
-            td = json.loads(resp.read())
-        _sp_token_cache["token"] = td["access_token"]
-        _sp_token_cache["expires_at"] = now + td.get("expires_in", 3600)
-        return td["access_token"]
-    except Exception as exc:
-        log.warning(
-            "SP M2M token fetch failed (%s) — will fall back to OBO token. "
-            "Check that DATABRICKS_CLIENT_ID/SECRET are valid OAuth M2M credentials.",
-            exc,
-        )
-        return None
-
-
-def _should_force_genie(question: str) -> bool:
-    q = (question or "").lower()
-    analytics_signals = [
-        "total spend",
-        "spend by",
-        "by category",
-        "top suppliers",
-        "trailing 12",
-        "contracts expire",
-        "maverick spend",
-        "savings",
-        "trend",
-        "breakdown",
-    ]
-    operational_signals = [
-        "submit pr",
-        "purchase request",
-        "supplier suggestion",
-        "suggest supplier",
-        "active contract for supplier",
-        "price history",
-    ]
-    if any(s in q for s in operational_signals):
-        return False
-    return any(s in q for s in analytics_signals)
-
-
-def _question_sig(question: str) -> str:
-    return hashlib.sha1((question or "").encode("utf-8")).hexdigest()[:12]
+class GuardrailBlocked(Exception):
+    """The serving endpoint's AI Gateway safety guardrail rejected the request."""
 
 
 def _query_fmapi(host: str, endpoint_name: str, access_token: str, messages: list[dict]) -> dict:
@@ -844,6 +916,8 @@ def _query_fmapi(host: str, endpoint_name: str, access_token: str, messages: lis
             return json.loads(resp.read())
     except _ue.HTTPError as e:
         body_txt = e.read().decode("utf-8", errors="replace")
+        if e.code == 400 and "guardrail" in body_txt.lower():
+            raise GuardrailBlocked() from e
         raise RuntimeError(f"FMAPI HTTP {e.code}: {body_txt[:400]}") from e
 
 
@@ -853,85 +927,24 @@ async def _stream_response(
     caller: CallerIdentity,
 ) -> AsyncGenerator[str, None]:
     s = get_settings()
-    user_question = ""
-    for m in reversed(messages):
-        if m.get("role") == "user":
-            user_question = m.get("content", "")
-            break
-
     full_response = ""
     tool_calls_buffer: list[dict] = []
 
     try:
-        force_genie = _should_force_genie(user_question)
-        log.info(
-            "routing_decision session_id=%s force_genie=%s question_sig=%s",
-            session_id,
-            force_genie,
-            _question_sig(user_question),
-        )
-        # Deterministic routing for analytics prompts: call Genie directly so the
-        # assistant cannot "miss" the ask_genie tool and hallucinate auth errors.
-        if force_genie:
-            log.info("Force-routing prompt to ask_genie: %s", user_question[:200])
-            raw = _run_tool("ask_genie", {"question": user_question}, caller)
-            tool_calls_buffer.append({
-                "name": "ask_genie",
-                "args": {"question": user_question},
-                "result": raw,
-            })
-            yield f"data: {json.dumps({'type': 'tool_start', 'name': 'ask_genie', 'args': {'question': user_question}})}\n\n"
-            yield f"data: {json.dumps({'type': 'tool_result', 'name': 'ask_genie', 'result': raw})}\n\n"
-            try:
-                payload = json.loads(raw)
-                if payload.get("answer"):
-                    full_response = payload.get("answer", "")
-                else:
-                    full_response = payload.get("error", "I couldn't retrieve an answer from Genie.")
-                    if payload.get("detail"):
-                        full_response += f" Details: {payload.get('detail')}"
-            except Exception:
-                full_response = raw
-            if full_response:
-                yield f"data: {json.dumps({'type': 'content', 'text': full_response})}\n\n"
-            try:
-                async with db_conn(caller) as conn:
-                    await conn.execute(
-                        "INSERT INTO chatbot_messages (message_id, session_id, role, content, tool_calls, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
-                        (str(uuid.uuid4()), session_id, "assistant", full_response,
-                         json.dumps(tool_calls_buffer),
-                         datetime.utcnow()),
-                    )
-                    await conn.execute(
-                        "UPDATE chatbot_sessions SET updated_at = %s WHERE session_id = %s",
-                        (datetime.utcnow(), session_id),
-                    )
-            except Exception:
-                log.debug("Lakebase unavailable — assistant reply not persisted for session %s", session_id)
+        # Single routing layer: the model decides which tools to call (including
+        # ask_genie for open-ended analytics) — no force-routing heuristic. FMAPI
+        # runs as the calling user; the OBO token carries serving.serving-endpoints.
+        fmapi_token = caller.access_token
+        if not fmapi_token:
+            yield f"data: {json.dumps({'type': 'error', 'message': 'No auth token available for the model endpoint.'})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             return
 
-        # Use SP M2M token for FMAPI so the LLM call runs as the app's SP (full
-        # workspace access) rather than as the OBO user. _get_sp_token returns None
-        # instead of raising, so fall back to the caller's OBO access_token.
-        # The OBO token has the serving.serving-endpoints scope (declared in app.yaml).
-        fmapi_token: str | None = None
-        if s.sp_client_id and s.sp_client_secret:
-            fmapi_token = _get_sp_token(s.databricks_host, s.sp_client_id, s.sp_client_secret)
-            if fmapi_token is None:
-                log.warning("SP M2M token unavailable — falling back to OBO token for FMAPI")
-        if not fmapi_token:
-            fmapi_token = caller.access_token
-        if not fmapi_token:
-            yield f"data: {json.dumps({'type': 'error', 'message': 'No auth token available for FMAPI (SP failed, no OBO token).'})}\n\n"
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
-            return
-
+        import asyncio as _asyncio
         while True:
-            import asyncio as _asyncio
             raw = await _asyncio.to_thread(
                 _query_fmapi,
-                s.databricks_host, s.serving_endpoint_name, fmapi_token, messages
+                s.databricks_host, s.serving_endpoint_name, fmapi_token, messages,
             )
 
             choices = raw.get("choices", [])
@@ -952,7 +965,7 @@ async def _stream_response(
                 fn_name = fn.get("name", "")
                 fn_args = json.loads(fn.get("arguments") or "{}")
                 tc_id = tc.get("id", str(uuid.uuid4()))
-                log.info("Tool call started: %s", fn_name)
+                log.info("Tool call: %s", fn_name)
                 yield f"data: {json.dumps({'type': 'tool_start', 'name': fn_name, 'args': fn_args})}\n\n"
 
                 result = _run_tool(fn_name, fn_args, caller)
@@ -964,33 +977,6 @@ async def _stream_response(
 
             if finish_reason == "stop" or (finish_reason != "tool_calls" and not tool_calls):
                 break
-
-        tool_names = [tc.get("name") for tc in tool_calls_buffer]
-        if force_genie and "ask_genie" not in tool_names:
-            log.warning(
-                "ask_genie missing from FMAPI tool calls; forcing fallback session_id=%s question_sig=%s",
-                session_id,
-                _question_sig(user_question),
-            )
-            raw = _run_tool("ask_genie", {"question": user_question}, caller)
-            tool_calls_buffer.append({
-                "name": "ask_genie",
-                "args": {"question": user_question},
-                "result": raw,
-            })
-            yield f"data: {json.dumps({'type': 'tool_start', 'name': 'ask_genie', 'args': {'question': user_question}})}\n\n"
-            yield f"data: {json.dumps({'type': 'tool_result', 'name': 'ask_genie', 'result': raw})}\n\n"
-            try:
-                payload = json.loads(raw)
-                if payload.get("answer"):
-                    full_response = payload.get("answer", "")
-                else:
-                    full_response = payload.get("error", "I couldn't retrieve an answer from Genie.")
-                    if payload.get("detail"):
-                        full_response += f" Details: {payload.get('detail')}"
-            except Exception:
-                full_response = raw
-            yield f"data: {json.dumps({'type': 'content', 'text': full_response})}\n\n"
 
         # Persist assistant reply (best-effort)
         try:
@@ -1010,6 +996,15 @@ async def _stream_response(
 
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
+    except GuardrailBlocked:
+        log.warning("FMAPI request blocked by the endpoint's input/output guardrail")
+        msg = (
+            "I couldn't complete that — the model endpoint's safety guardrail flagged the request. "
+            "This can false-trip on procurement data (e.g. aerospace/defense suppliers). "
+            "Try rephrasing, or ask about a specific supplier or contract by name."
+        )
+        yield f"data: {json.dumps({'type': 'content', 'text': msg})}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
     except Exception as exc:
         log.exception("Chatbot stream error")
         yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"

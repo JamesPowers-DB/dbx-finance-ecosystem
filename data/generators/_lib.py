@@ -521,6 +521,87 @@ def pool_addresses(g: Generic, pool_size: int = 500) -> List[Dict]:
 
 
 # COMMAND ----------
+# MAGIC %md ## Supplier name synthesis (fabricated, segment-flavored, unique)
+# MAGIC
+# MAGIC Supplier names are composed `<prefix> <domain> <suffix>` rather than drawn
+# MAGIC from Mimesis `finance.company()`. Two reasons:
+# MAGIC   1. **Uniqueness.** Mimesis' EN company corpus is < 1k names, so any pool
+# MAGIC      large enough for ~3k suppliers collided heavily — one name mapped to
+# MAGIC      several supplier_ids, which broke name-based lookups downstream.
+# MAGIC   2. **Realism.** Mimesis emits real consumer brands (pharmacies, casinos)
+# MAGIC      with no industrial/category affinity, so a components search surfaced
+# MAGIC      nonsensical suppliers. The `domain` token is keyed to the supplier's
+# MAGIC      segment affinity, so the name reads like an industrial supplier that
+# MAGIC      plausibly serves the categories it's invoiced in.
+# MAGIC
+# MAGIC The combo space (~120 prefixes × ~6 domains × ~12 suffixes per segment ≈ 8.6k)
+# MAGIC dwarfs the per-segment supplier count, so deterministic rejection sampling
+# MAGIC against a global `used` set yields unique names without a numeric crutch.
+
+# COMMAND ----------
+SUPPLIER_NAME_PREFIXES: List[str] = [
+    "Apex", "Meridian", "Vanguard", "Summit", "Atlas", "Beacon", "Voltaic", "Lumen",
+    "Terra", "Northbridge", "Cornerstone", "Pinnacle", "Cardinal", "Helix", "Vantage",
+    "Axiom", "Sentinel", "Orion", "Pioneer", "Keystone", "Granite", "Ironclad", "Cobalt",
+    "Crestline", "Vertex", "Equinox", "Polaris", "Aegis", "Monarch", "Sterling", "Redwood",
+    "Bluefin", "Copperline", "Anchor", "Bedrock", "Brightline", "Caliber", "Citadel",
+    "Concord", "Dominion", "Eastgate", "Elevon", "Everest", "Fairmont", "Forge", "Fulcrum",
+    "Gateway", "Halcyon", "Harbor", "Highpoint", "Horizon", "Ironwood", "Juniper", "Lakeside",
+    "Lattice", "Legacy", "Liberty", "Lodestar", "Magnolia", "Mainline", "Maxwell", "Mercury",
+    "Midland", "Momentum", "Nexus", "Nimbus", "Northstar", "Oakridge", "Optima", "Paramount",
+    "Patriot", "Peregrine", "Precision", "Premier", "Providence", "Quanta", "Radian", "Rampart",
+    "Regent", "Reliant", "Ridgeline", "Rivergate", "Sable", "Sequoia", "Silverline", "Solstice",
+    "Spectra", "Stonebridge", "Stratos", "Tempest", "Titan", "Trailhead", "Triton", "Tundra",
+    "Unity", "Vela", "Veritas", "Vista", "Westfield", "Whitestone", "Zenith", "Zephyr",
+    "Allied", "Ascent", "Banner", "Birchwood", "Cascade", "Clarion", "Crown", "Delta",
+    "Emerald", "Falcon", "Frontier", "Galleon", "Hallmark", "Ironside", "Kestrel", "Lakemont",
+    "Marquis", "Northwind", "Pacific", "Sierra",
+]
+# Domain token keyed to the supplier's primary segment affinity. None of these
+# end in a legal/structure word, so they never collide with the suffix.
+SUPPLIER_DOMAIN_BY_SEGMENT: Dict[str, List[str]] = {
+    "AD":    ["Aerospace", "Defense", "Aerostructures", "Avionics", "Aeronautics", "Aero"],
+    "PA":    ["Process", "Automation", "Instrumentation", "Process Controls", "Industrial Automation", "Controls"],
+    "SB":    ["Building", "Facility", "Building Controls", "Smart Building", "Mechanical", "Building Automation"],
+    "ET":    ["Energy", "Power", "Renewables", "Clean Energy", "Power Electronics", "Grid"],
+    "CROSS": ["Industrial", "Commercial", "Logistics", "Materials", "Supply", "Services"],
+}
+SUPPLIER_NAME_SUFFIXES: List[str] = [
+    "Inc.", "LLC", "Group", "Systems", "Industries", "Corp.",
+    "Technologies", "Partners", "Holdings", "Co.", "Solutions", "International",
+]
+
+
+def make_supplier_names(rng: np.random.Generator, segment_affinity: np.ndarray) -> np.ndarray:
+    """Assign each supplier a unique, segment-flavored fabricated company name.
+
+    `segment_affinity` is the per-supplier industry segment (AD/PA/SB/ET/CROSS).
+    Names are `<prefix> <segment-domain> <suffix>`; a global `used` set guarantees
+    1:1 uniqueness. Deterministic for a given seeded `rng`.
+    """
+    used: set = set()
+    out: List[str] = []
+    n_prefix = len(SUPPLIER_NAME_PREFIXES)
+    n_suffix = len(SUPPLIER_NAME_SUFFIXES)
+    for seg in segment_affinity:
+        domains = SUPPLIER_DOMAIN_BY_SEGMENT.get(str(seg), SUPPLIER_DOMAIN_BY_SEGMENT["CROSS"])
+        name = None
+        for _ in range(2000):
+            p = SUPPLIER_NAME_PREFIXES[int(rng.integers(0, n_prefix))]
+            d = domains[int(rng.integers(0, len(domains)))]
+            sfx = SUPPLIER_NAME_SUFFIXES[int(rng.integers(0, n_suffix))]
+            cand = f"{p} {d} {sfx}"
+            if cand not in used:
+                name = cand
+                break
+        if name is None:  # combo space exhausted (won't happen at demo scale) — force-unique
+            name = f"{p} {d} {sfx} {len(out)}"
+        used.add(name)
+        out.append(name)
+    return np.array(out, dtype=object)
+
+
+# COMMAND ----------
 # MAGIC %md ## Geography
 # MAGIC
 # MAGIC Country code → geography bucket. The reference filings' literal

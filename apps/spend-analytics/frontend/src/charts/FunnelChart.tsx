@@ -26,14 +26,14 @@ interface FunnelChartProps {
  */
 export function FunnelChart({
   stages,
-  width = 520,
-  height = 300,
+  width = 480,
+  height = 416,
   formatValue = (v) => `$${(v / 1e9).toFixed(2)}B`,
 }: FunnelChartProps) {
-  const margin = { top: 26, right: 12, bottom: 8, left: 12 };
+  const margin = { top: 28, right: 12, bottom: 28, left: 12 };
   const innerW = width - margin.left - margin.right;
   const rowH = (height - margin.top - margin.bottom) / Math.max(stages.length, 1);
-  const barH = Math.min(46, rowH * 0.46);
+  const barH = Math.min(44, rowH * 0.36);
 
   const maxAmount = useMemo(
     () => Math.max(...stages.map((s) => s.amount), 1),
@@ -56,10 +56,10 @@ export function FunnelChart({
           return (
             <g key={s.stage}>
               {/* stage header row: name (left) + amount (right) */}
-              <text x={0} y={y - 8} fontFamily="var(--font-mono)" fontSize={11} fontWeight={700} fill="var(--fg-1)" style={{ textTransform: "uppercase" }}>
+              <text x={0} y={y - 12} fontFamily="var(--font-mono)" fontSize={13} fontWeight={700} fill="var(--fg-1)" style={{ textTransform: "uppercase" }}>
                 {s.stage}
               </text>
-              <text x={innerW} y={y - 8} textAnchor="end" fontFamily="var(--font-mono)" fontSize={13} fontWeight={700} fill="var(--fg-1)">
+              <text x={innerW} y={y - 12} textAnchor="end" fontFamily="var(--font-mono)" fontSize={16} fontWeight={700} fill="var(--fg-1)">
                 {formatValue(s.amount)}
               </text>
 
@@ -69,28 +69,20 @@ export function FunnelChart({
                 <rect x={cleanW} y={y} width={leakW} height={barH} rx={3} fill="var(--db-lava-600)" opacity={0.85} />
               )}
 
-              {/* leak annotation */}
-              {leak > 0 && s.leak_label && (
-                <text
-                  x={Math.min(cleanW + leakW / 2, innerW - 4)}
-                  y={y + barH + 13}
-                  textAnchor="middle"
-                  fontFamily="var(--font-mono)"
-                  fontSize={10}
-                  fill="var(--db-lava-600)"
-                >
-                  {formatValue(leak)} {s.leak_label}
-                </text>
-              )}
-              {/* caption (left, under bar) */}
-              <text x={0} y={y + barH + 13} fontFamily="var(--font-mono)" fontSize={9.5} fill="var(--fg-3)">
+              {/* line below bar: caption (left) + conversion vs prior stage (right) */}
+              <text x={0} y={y + barH + 20} fontFamily="var(--font-mono)" fontSize={12} fill="var(--fg-3)">
                 {s.caption}
               </text>
-
-              {/* conversion vs prior stage */}
               {convPct != null && (
-                <text x={innerW} y={y - 8 - 14} textAnchor="end" fontFamily="var(--font-mono)" fontSize={9.5} fill="var(--fg-3)">
+                <text x={innerW} y={y + barH + 20} textAnchor="end" fontFamily="var(--font-mono)" fontSize={12} fill="var(--fg-3)">
                   ↓ {convPct.toFixed(0)}% of {prev!.stage.toLowerCase()}
+                </text>
+              )}
+
+              {/* leak annotation on its own line (left, red) — never collides */}
+              {leak > 0 && s.leak_label && (
+                <text x={0} y={y + barH + 40} fontFamily="var(--font-mono)" fontSize={12} fontWeight={600} fill="var(--db-lava-600)">
+                  {formatValue(leak)} {s.leak_label}
                 </text>
               )}
             </g>
