@@ -3,42 +3,83 @@ resources:
     setup:
       name: finance-spend-analytics-setup-${bundle.target}
       description: >
-        One-click post-deploy installer. Runs the whole consumption stack in order:
-        generate_data -> build_lakehouse (pipeline) -> apply_metric_views ->
-        provision_genie -> grant_app_sp. After `databricks bundle deploy`, run this
-        once with `databricks bundle run setup -t <target>`. Idempotent; re-run any
-        individual job on its own when iterating. Heavy (full data regen + pipeline)
-        — expect ~15-30 min on first run.
+        Weekly data-refresh pipeline (repurposed from the one-time installer so
+        the demo's data doesn't go stale once it's running unattended). Chain:
+
+          1. generate_data            — synthesize fresh source files (auto-extends
+                                         anchors to the current quarter; never past today)
+          2. build_lakehouse_full     — FULL pipeline refresh (re-ingests the
+                                         regenerated source files; bronze is streaming,
+                                         so overwritten files need a full refresh)
+          3. run_inference            — score invoices with spend_classifier@production
+                                         → ml_invoice_classifications
+          4. refresh_labeled_data     — INCREMENTAL pipeline refresh to propagate the
+                                         new ML labels up into gold
+
+        Runs every Saturday 22:00 UTC. apply_metric_views / provision_genie /
+        grant_app_sp are intentionally NOT in this job — they are one-time setup
+        steps; run them individually (their standalone jobs still exist) if needed.
       max_concurrent_runs: 1
       email_notifications: {}
+
+      # Weekly off-hours refresh. Quartz: sec min hour day-of-month month day-of-week.
+      schedule:
+        quartz_cron_expression: "0 0 22 ? * SAT"
+        timezone_id: "UTC"
+        pause_status: UNPAUSED
+
+      environments:
+        - environment_key: ml
+          spec:
+            client: "2"
+            dependencies:
+              - --requirement /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}/files/requirements.txt
+              - --requirement /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}/files/requirements-ml.txt
+
       tasks:
         - task_key: generate_data
           run_job_task:
             job_id: ${resources.jobs.generate_data.id}
 
-        - task_key: build_lakehouse
+        - task_key: build_lakehouse_full
           depends_on:
             - task_key: generate_data
-          run_job_task:
-            job_id: ${resources.jobs.build_lakehouse.id}
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.lakehouse.id}
+            full_refresh: true
 
-        - task_key: apply_metric_views
+        - task_key: run_inference
           depends_on:
-            - task_key: build_lakehouse
-          run_job_task:
-            job_id: ${resources.jobs.apply_metric_views.id}
+            - task_key: build_lakehouse_full
+          environment_key: ml
+          notebook_task:
+            notebook_path: ../ml/spend_classification/batch_inference.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              model_name: spend_classifier
+              model_alias: production
 
-        - task_key: provision_genie
+        - task_key: refresh_labeled_data
           depends_on:
-            - task_key: apply_metric_views
-          run_job_task:
-            job_id: ${resources.jobs.provision_genie.id}
+            - task_key: run_inference
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.lakehouse.id}
+            full_refresh: false
 
-        - task_key: grant_app_sp
+        - task_key: validate_output
           depends_on:
-            - task_key: provision_genie
-          run_job_task:
-            job_id: ${resources.jobs.grant_app_sp.id}
+            - task_key: refresh_labeled_data
+          environment_key: ml
+          notebook_task:
+            notebook_path: ../ml/notebooks/validate_refresh_output.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              min_label_coverage_pct: "90"
+              freshness_window_days: "45"
 
       queue:
         enabled: true

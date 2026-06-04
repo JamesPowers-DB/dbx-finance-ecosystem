@@ -440,9 +440,14 @@ def generate_quarter(fy: int, fq: int):
             * (0.7 + 0.3 * macro_weight_for_month(fy, m)["supply_chain_stress_idx"])
             for m in months_
         ])
+        # In-progress quarter: zero out future months and partial the current
+        # month so the (prorated) volume stays inside the elapsed window.
+        weights = weights * today_month_mask(fy, fq, months_)
         monthly_targets = allocate_to_months(pr_target, weights)
 
         for mi, m in enumerate(months_):
+            if date(fy, m, 1) > generation_as_of():
+                continue   # entire month is in the future — generate nothing
             month_target = monthly_targets[mi]
             n_lines = max(20, int(month_target / AVG_LINE_AMOUNT_TARGET))
             n_prs = max(5, int(n_lines / rng_pr.uniform(3.0, 6.0)))
@@ -457,6 +462,8 @@ def generate_quarter(fy: int, fq: int):
 
             month_start = date(fy, m, 1)
             month_end = (date(fy, m + 1, 1) if m < 12 else date(fy + 1, 1, 1)) - timedelta(days=1)
+            # Never create a PR dated past today (caps the current month).
+            month_end = min(month_end, effective_quarter_end(fy, fq))
             month_span_days = (month_end - month_start).days
 
             lines_per_pr = rng_pr.integers(1, 8, size=n_prs)

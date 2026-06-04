@@ -32,15 +32,13 @@ env:
   # short-lived OAuth credential per request against LAKEBASE_ENDPOINT.
   # ► TODO(deploy): set these to the e2-demo-west Lakebase project/endpoint.
   - name: LAKEBASE_HOST
-    value: "ep-flat-term-d2wmep2h.database.us-east-1.cloud.databricks.com"
+    value: "ep-soft-night-d2uzjg5p.database.us-east-1.cloud.databricks.com"
   - name: LAKEBASE_PORT
     value: "5432"
   - name: LAKEBASE_DATABASE
     value: "databricks_postgres"
   - name: LAKEBASE_ENDPOINT
-    value: "projects/finance-spend-analytics/branches/production/endpoints/primary"
-
-
+    value: "projects/finance-strategic-spend/branches/production/endpoints/primary"
 
 
   # Genie space — the ask_genie tool resolves the space id by TITLE at runtime,
@@ -58,6 +56,6 @@ env:
   # Unity Catalog coordinates. Single schema; tables are layer-prefixed
   # (gold_ / silver_ / ml_) — the app adds the prefix at the query site.
   - name: DATABRICKS_CATALOG
-    value: "powers_land_catalog"
+    value: "manufacturing"
   - name: DATABRICKS_SCHEMA
     value: "finance_spend_analytics"

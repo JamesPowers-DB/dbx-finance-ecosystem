@@ -75,6 +75,61 @@ CONSOL_PERIODS = [
 ]
 
 # COMMAND ----------
+# MAGIC %md ## Auto-extend to the current quarter
+# MAGIC
+# MAGIC So a scheduled refresh keeps producing current data with no one hand-coding
+# MAGIC new quarters: project quarterly anchors forward from the last filed quarter
+# MAGIC up to the current one by growing the **same quarter a year prior** (preserves
+# MAGIC seasonality), and **prorate the in-progress quarter's flow metrics** to the
+# MAGIC elapsed fraction of the quarter. Generators clip document dates to today
+# MAGIC (see `_lib` as-of helpers), so the partial quarter ties to its prorated
+# MAGIC anchor and never emits future-dated rows. Projected quarters are tagged
+# MAGIC `filing_type='PROJECTED'`.
+
+# COMMAND ----------
+_YOY_GROWTH = 1.04  # ~4% YoY, matching the filed-period trend
+_FLOW_IDX = (4, 5, 6, 7, 8, 9, 10, 11, 19, 20, 21)  # P&L + cash-flow flows (prorate partial qtr)
+
+
+def _project_quarter(base: tuple, fy: int, fq: int, frac: float) -> tuple:
+    row = list(base)
+    row[0], row[1], row[2], row[3] = "Q", fy, fq, quarter_end(fy, fq)
+    for i in range(4, 22):                                  # all $ metrics (P&L, BS, CF)
+        row[i] = round(float(base[i]) * _YOY_GROWTH, 1)
+    row[22] = int(round(float(base[22]) * _YOY_GROWTH))     # headcount
+    row[23], row[24] = "PROJECTED", ""
+    if frac < 1.0:                                          # in-progress quarter → prorate flows
+        for i in _FLOW_IDX:
+            row[i] = round(row[i] * frac, 1)
+    return tuple(row)
+
+
+_as_of = generation_as_of()
+_cy, _cq = current_fiscal_quarter(_as_of)
+_by_fq = {(r[1], r[2]): r for r in CONSOL_PERIODS if r[0] == "Q"}
+_fy, _fq = max((r[1], r[2]) for r in CONSOL_PERIODS if r[0] == "Q")
+_projected = []
+while True:
+    _fq += 1
+    if _fq == 5:
+        _fq, _fy = 1, _fy + 1
+    if (_fy, _fq) > (_cy, _cq):
+        break
+    _base = _by_fq.get((_fy - 1, _fq))                      # same quarter, prior year
+    if _base is None:
+        continue                                            # no basis to project — skip
+    _proj = _project_quarter(_base, _fy, _fq, quarter_elapsed_fraction(_fy, _fq, _as_of))
+    _by_fq[(_fy, _fq)] = _proj
+    _projected.append(_proj)
+
+if _projected:
+    CONSOL_PERIODS = CONSOL_PERIODS + _projected
+    print(f"Auto-extended anchors with {len(_projected)} projected quarter(s): "
+          f"{[(r[1], r[2]) for r in _projected]} (as_of {_as_of})")
+else:
+    print(f"No projection needed — anchors current through {(_cy, _cq)} (as_of {_as_of})")
+
+# COMMAND ----------
 # MAGIC %md ## Compose rows — CONSOL + per-segment
 
 # COMMAND ----------

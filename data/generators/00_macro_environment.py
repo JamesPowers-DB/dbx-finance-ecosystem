@@ -27,15 +27,23 @@ print(f"Writing to {catalog}.{schema}.gold_dim_macro_environment")
 # COMMAND ----------
 start = date(2023, 1, 1)
 today = date.today()
+# Generate macro factors through the END of the current quarter (not just today)
+# so the downstream generators can build per-month weight arrays for all three
+# months of the in-progress quarter — even when today falls early in it. This is
+# only factor weights (not dated transactions); the generators' today-mask still
+# zeroes future-month VOLUME, so no future-dated documents are produced.
+_cq = (today.month - 1) // 3 + 1
+gen_through = {1: date(today.year, 3, 31), 2: date(today.year, 6, 30),
+               3: date(today.year, 9, 30), 4: date(today.year, 12, 31)}[_cq]
 months: List[date] = []
 y, m = start.year, start.month
-while date(y, m, 1) <= today:
+while date(y, m, 1) <= gen_through:
     months.append(date(y, m, 1))
     m += 1
     if m == 13:
         m, y = 1, y + 1
 n = len(months)
-print(f"{n} months from {months[0]} to {months[-1]}")
+print(f"{n} months from {months[0]} to {months[-1]} (through current-quarter end {gen_through})")
 
 # COMMAND ----------
 # MAGIC %md ## Hand-engineered GDP arc

@@ -325,8 +325,10 @@ def generate_quarter_fusion(fy: int, fq: int):
         next_po_header_id += 1
         po_number = f"PO-{fy}{fq}-{po_header_id:09d}"
         pr_created = pr_header["ERDAT"]
-        # PR-to-PO lead time: ~5-25 days after PR creation
-        po_approved = pr_created + timedelta(days=int(rng.integers(5, 26)))
+        # PR-to-PO lead time: ~5-25 days after PR creation, never dated past today
+        # (no-op for closed quarters; caps only the in-progress quarter).
+        po_approved = min(pr_created + timedelta(days=int(rng.integers(5, 26))),
+                          generation_as_of())
 
         po_headers_rows.append({
             "po_header_id": po_header_id,
@@ -413,6 +415,11 @@ def generate_quarter_fusion(fy: int, fq: int):
         qe = quarter_end(fy, fq)
         if invoice_date > qe + timedelta(days=30):
             invoice_date = qe + timedelta(days=int(rng.integers(0, 30)))
+        # In-progress quarter only: never emit a future-dated invoice. Back off a
+        # few days from today rather than piling every clamped invoice on one date.
+        _as_of = generation_as_of()
+        if invoice_date > _as_of:
+            invoice_date = max(po_approved, _as_of - timedelta(days=int(rng.integers(0, 21))))
 
         due_date = invoice_date + timedelta(days=days_term)
         status, payment_dt = determine_payment_status(invoice_date, payment_terms, rng)
@@ -492,7 +499,10 @@ def generate_quarter_fusion(fy: int, fq: int):
         supplier_id = f"SUPP-{1_000_000 + int(rng_npov.integers(0, 3000)):07d}"
         payment_terms = supplier_terms.get(supplier_id, "Net30")
         days_term = PAYMENT_TERMS_DAYS[payment_terms]
-        invoice_date = qs + timedelta(days=int(rng_npov.integers(0, (qe - qs).days + 1)))
+        # Draw within [quarter start, min(quarter end, today)] so an in-progress
+        # quarter's direct vouchers never land in the future (no-op for closed quarters).
+        _npov_hi = (effective_quarter_end(fy, fq) - qs).days
+        invoice_date = qs + timedelta(days=int(rng_npov.integers(0, _npov_hi + 1)))
         due_date = invoice_date + timedelta(days=days_term)
         amount = round(float(rng_npov.lognormal(8.5, 1.2)), 2)
         status, payment_dt = determine_payment_status(invoice_date, payment_terms, rng_npov)
@@ -696,14 +706,22 @@ def generate_quarter_fusion(fy: int, fq: int):
             continue
         weights = np.array([macro_factor(fy, m, "demand_idx_sales")
                             * macro_factor(fy, m, "seasonality_idx") for m in months_])
+        # In-progress quarter: zero future months, partial the current month.
+        weights = weights * today_month_mask(fy, fq, months_)
         monthly_targets = allocate_to_months(target_rev, weights)
+        _as_of = generation_as_of()
         for mi, m in enumerate(months_):
+            if date(fy, m, 1) > _as_of:
+                continue   # entire month is in the future — generate nothing
             target_m = monthly_targets[mi]
             n_inv = max(15, int(target_m / 85_000.0))
             amounts = renormalize_amounts(rng, n_inv, target_m, mu=11.0, sigma=1.0)
+            # Cap the day-of-month draw at today for the current month (else [1,27]).
+            _month_end = (date(fy, m + 1, 1) if m < 12 else date(fy + 1, 1, 1)) - timedelta(days=1)
+            _hi_day = 27 if _month_end <= _as_of else _as_of.day
             for idx in range(n_inv):
                 amt = round(float(amounts[idx]), 2)
-                inv_date = date(fy, m, int(rng.integers(1, 28)))
+                inv_date = date(fy, m, int(rng.integers(1, _hi_day + 1)))
                 ar_inv_rows.append({
                     "customer_trx_id": int(rng.integers(10_000_000, 99_999_999)),
                     "trx_number": f"AR-{(fy * 10_000_000) + (fq * 1_000_000) + idx:010d}",

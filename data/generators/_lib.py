@@ -76,6 +76,65 @@ def quarter_start(year: int, quarter: int) -> date:
 
 
 # COMMAND ----------
+# MAGIC %md ## "As-of today" generation cap
+# MAGIC
+# MAGIC So a scheduled refresh can extend the series forward without ever
+# MAGIC fabricating future-dated documents. The current (in-progress) quarter is
+# MAGIC generated only up to `generation_as_of()` (today): its anchor is prorated
+# MAGIC by the elapsed fraction (see `01_period_anchors_seed.py`), monthly
+# MAGIC allocations are masked so future months get zero volume
+# MAGIC (`today_month_mask`), and document-date draws are capped at
+# MAGIC `effective_quarter_end`. Past quarters are unaffected (mask = all 1.0,
+# MAGIC effective end = real quarter end).
+
+# COMMAND ----------
+def generation_as_of() -> date:
+    """Hard upper bound on every generated document date. Today, by default."""
+    return date.today()
+
+
+def current_fiscal_quarter(as_of: Optional[date] = None) -> Tuple[int, int]:
+    d = as_of or generation_as_of()
+    return d.year, (d.month - 1) // 3 + 1
+
+
+def quarter_elapsed_fraction(fy: int, fq: int, as_of: Optional[date] = None) -> float:
+    """Fraction of quarter (fy,fq) elapsed as of `as_of`, in [0,1].
+    1.0 for a fully-past quarter, partial for the in-progress one, 0 for future."""
+    d = as_of or generation_as_of()
+    qs, qe = quarter_start(fy, fq), quarter_end(fy, fq)
+    total = (qe - qs).days + 1
+    elapsed = (min(d, qe) - qs).days + 1
+    return max(0.0, min(1.0, elapsed / total))
+
+
+def effective_quarter_end(fy: int, fq: int, as_of: Optional[date] = None) -> date:
+    """Upper bound for any document date in (fy,fq): the quarter end, but never
+    after `as_of`. For past quarters this is just the real quarter end."""
+    return min(quarter_end(fy, fq), as_of or generation_as_of())
+
+
+def today_month_mask(fy: int, fq: int, months_: List[int], as_of: Optional[date] = None) -> np.ndarray:
+    """Per-month multiplier in [0,1] to apply to monthly allocation weights:
+    1.0 for fully-elapsed months, the elapsed day-fraction for the current month,
+    0.0 for future months. Zeroing future months keeps an in-progress quarter's
+    (prorated) volume inside the elapsed window instead of spilling past today.
+    All 1.0 for a fully-past quarter."""
+    d = as_of or generation_as_of()
+    out: List[float] = []
+    for m in months_:
+        ms = date(fy, m, 1)
+        me = (date(fy, m + 1, 1) if m < 12 else date(fy + 1, 1, 1)) - timedelta(days=1)
+        if ms > d:
+            out.append(0.0)
+        elif me <= d:
+            out.append(1.0)
+        else:
+            out.append(((d - ms).days + 1) / ((me - ms).days + 1))
+    return np.array(out, dtype=np.float64)
+
+
+# COMMAND ----------
 # MAGIC %md ## Spend taxonomy — 30 categories with ML-training payload
 # MAGIC
 # MAGIC `segment` is the segment that primarily buys this category. `matgroup` is

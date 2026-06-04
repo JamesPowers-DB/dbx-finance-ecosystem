@@ -8,7 +8,7 @@ include:
 variables:
   catalog:
     description: Unity Catalog name for this project
-    default: powers_land_catalog
+    default: manufacturing
 
   schema:
     description: >
@@ -23,7 +23,7 @@ variables:
 
   warehouse_id:
     description: SQL warehouse ID used by the Spend Analytics app (OBO queries)
-    default: 243750e48fe7f5cb
+    default: 47e34bcee8ce206b
 
 sync:
   include:
@@ -53,7 +53,11 @@ targets:
     mode: production
     default: true
     workspace:
-      host: https://fevm-powers-land.cloud.databricks.com
+      host: https://fevm-mfg-industry-prod.cloud.databricks.com
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    # All prod resources (jobs, pipeline, app) run as whoever deploys the bundle.
+    # Apps reject a run_as different from the deployer, so to make the weekly
+    # refresh durable past one person's access, the durable owner must be the one
+    # to `databricks bundle deploy` (then jobs + pipeline + app all run as them).
     run_as:
       user_name: ${workspace.current_user.userName}
