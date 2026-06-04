@@ -13,17 +13,24 @@ can carry Active rows whose dates have already expired.
 
 from __future__ import annotations
 
+import logging
+import uuid
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..auth import CallerIdentity, caller_identity
 from ..config import get_settings
 from ..db import fetch_all, fetch_one, t12m_supplier_spend_sql
+from ..lakebase import db_conn
 from ..models import (
     ContractBurnDown,
     ContractInvoiceRow,
     ContractPORow,
     ContractRow,
 )
+
+log = logging.getLogger("sourcing_portal.contracts")
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
 
@@ -118,6 +125,162 @@ def list_contracts(
     """
     params.append(limit)
     return fetch_all(caller, sql, params)
+
+
+_WORKFLOW_SYSTEM = "Sourcing & Contracting (via Contracting MCP)"
+_WORKFLOW_ROUTED_TO = "Category owner + Legal (e-signature on award)"
+
+
+@router.post("/{contract_id}/initiate_workflow")
+async def initiate_workflow(
+    contract_id: str,
+    caller: CallerIdentity = Depends(caller_identity),
+) -> dict:
+    """Demo action: fabricate an agentic contracting-workflow kickoff (no write
+    to the contract), and persist the outcome to Lakebase so re-opening the
+    contract recalls it.
+
+    Mirrors the procurement agent's submit_pr → Sourcing & Contracting routing —
+    the contract's "Recommended action" becomes a real (faked) outcome routed
+    through a Contracting MCP server. The workflow kind matches the renewal-risk
+    state (regulated → compliance review; over-consumed → renegotiation; expiring
+    → renewal event) so the message lines up with what the UI recommends. The
+    contract itself is never modified; only the workflow record is stored.
+    """
+    s = get_settings()
+    row = fetch_one(
+        caller,
+        f"""
+        SELECT c.title,
+               c.supplier_id,
+               sup.supplier_name,
+               COALESCE(sup.is_regulated_supplier, FALSE)       AS is_regulated,
+               DATEDIFF(c.expiration_date, CURRENT_DATE())      AS days_to_expiry,
+               cons.pct_consumed
+        FROM {s.silver}.silver_contract_inbound c
+        LEFT JOIN {s.gold}.gold_dim_supplier sup
+            ON c.supplier_id = sup.supplier_id
+        LEFT JOIN ({_contract_scoped_consumption_sql(s)}) cons
+            ON c.contract_workspace_id = cons.contract_workspace_id
+        WHERE c.contract_workspace_id = ?
+        """,
+        [contract_id],
+    )
+    if not row:
+        raise HTTPException(404, "Contract not found")
+
+    consumed = float(row.get("pct_consumed") or 0)
+    days = row.get("days_to_expiry")
+    supplier_name = row.get("supplier_name") or row.get("supplier_id")
+    title = row.get("title") or "contract"
+    regulated = bool(row.get("is_regulated"))
+
+    # Workflow kind mirrors assessRisk priority (over-consumed out-ranks expiry).
+    if regulated:
+        kind, summary = "compliance_renewal", "compliance-reviewed renewal"
+    elif consumed >= 100:
+        kind, summary = "renegotiation", "renegotiation to resize/consolidate the over-consumed commitment"
+    elif days is not None and days < 120:
+        kind, summary = "renewal", "renewal event ahead of expiration"
+    else:
+        kind, summary = "review", "commitment review"
+
+    workflow_id = f"CW-{datetime.utcnow():%Y}-{uuid.uuid4().hex[:5].upper()}"
+    now = datetime.utcnow()
+    message = (
+        f"Opened contracting workflow {workflow_id} for {supplier_name} — {summary} on "
+        f"“{title}”. Routed to Sourcing & Contracting; an agent drafted the brief "
+        f"and notified the category owner. No contract was modified."
+    )
+
+    # Persist — one row per contract; re-initiating replaces it. We surface a
+    # `persisted` flag (and log loudly on failure) rather than silently masking
+    # a failed write: the success card is built from THIS response, so without
+    # this signal a dropped write looks identical to a stored one — and recall
+    # on re-open would then silently show nothing.
+    persisted = False
+    try:
+        async with db_conn(caller) as conn:
+            await conn.execute(
+                """
+                INSERT INTO contract_workflows
+                    (contract_workspace_id, workflow_id, workflow_kind, status,
+                     supplier_name, contract_title, routed_to, message,
+                     initiated_by, initiated_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (contract_workspace_id) DO UPDATE SET
+                    workflow_id    = EXCLUDED.workflow_id,
+                    workflow_kind  = EXCLUDED.workflow_kind,
+                    status         = EXCLUDED.status,
+                    supplier_name  = EXCLUDED.supplier_name,
+                    contract_title = EXCLUDED.contract_title,
+                    routed_to      = EXCLUDED.routed_to,
+                    message        = EXCLUDED.message,
+                    initiated_by   = EXCLUDED.initiated_by,
+                    initiated_at   = EXCLUDED.initiated_at
+                """,
+                (contract_id, workflow_id, kind, "initiated", supplier_name,
+                 title, _WORKFLOW_ROUTED_TO, message, caller.email, now),
+            )
+        persisted = True
+    except Exception:
+        log.warning(
+            "Lakebase write failed — contract workflow %s NOT persisted; "
+            "recall on re-open will show nothing.", workflow_id, exc_info=True,
+        )
+
+    return {
+        "action": "route_to_contracting",
+        "system": _WORKFLOW_SYSTEM,
+        "status": "initiated",
+        "workflow_id": workflow_id,
+        "workflow_kind": kind,
+        "supplier_name": supplier_name,
+        "contract_title": title,
+        "routed_to": _WORKFLOW_ROUTED_TO,
+        "message": message,
+        "initiated_by": caller.email,
+        "initiated_at": now.isoformat(),
+        "persisted": persisted,
+    }
+
+
+@router.get("/{contract_id}/workflow")
+async def get_workflow(
+    contract_id: str,
+    caller: CallerIdentity = Depends(caller_identity),
+) -> dict | None:
+    """Recall a previously-initiated contracting workflow for this contract, or
+    null if none exists / Lakebase is unavailable."""
+    try:
+        async with db_conn(caller) as conn:
+            r = await (await conn.execute(
+                """
+                SELECT workflow_id, workflow_kind, status, supplier_name,
+                       contract_title, routed_to, message, initiated_by, initiated_at
+                FROM contract_workflows
+                WHERE contract_workspace_id = %s
+                """,
+                (contract_id,),
+            )).fetchone()
+    except Exception:
+        log.debug("Lakebase unavailable — no recalled workflow for %s", contract_id)
+        return None
+    if not r:
+        return None
+    return {
+        "action": "route_to_contracting",
+        "system": _WORKFLOW_SYSTEM,
+        "workflow_id": r[0],
+        "workflow_kind": r[1],
+        "status": r[2],
+        "supplier_name": r[3],
+        "contract_title": r[4],
+        "routed_to": r[5],
+        "message": r[6],
+        "initiated_by": r[7],
+        "initiated_at": r[8].isoformat() if r[8] else None,
+    }
 
 
 @router.get("/{contract_id}/burn_down", response_model=ContractBurnDown)

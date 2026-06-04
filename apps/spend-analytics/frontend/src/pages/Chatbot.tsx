@@ -42,6 +42,30 @@ const TOOL_LABEL: Record<string, string> = {
 };
 const toolLabel = (n?: string) => (n && TOOL_LABEL[n]) || n || "Working";
 
+// Each agent tool maps to the module where you act on its result — so a tool
+// call becomes a deep-link into the right page ("here's what to do with this"),
+// not just a printed answer. submit_pr is the action itself, so it has no link.
+const TOOL_MODULE: Record<string, { page: string; label: string }> = {
+  find_suppliers:      { page: "suppliers", label: "Open in Suppliers" },
+  supplier_profile:    { page: "suppliers", label: "Open scorecard" },
+  price_history:       { page: "suppliers", label: "Open in Suppliers" },
+  get_active_contract: { page: "contracts", label: "Open in Contracts" },
+  expiring_contracts:  { page: "contracts", label: "Review renewals" },
+  savings_summary:     { page: "savings",   label: "Open Cost Savings" },
+  ask_genie:           { page: "analytics", label: "Open Spend Analytics" },
+};
+
+// Pull a supplier_id out of a tool result so supplier links can deep-link to
+// that exact scorecard. Only supplier_profile carries a single unambiguous id.
+function extractSupplierId(name?: string, result?: string): string | undefined {
+  if (!result || name !== "supplier_profile") return undefined;
+  try {
+    return JSON.parse(result)?.profile?.supplier_id || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function parseGenie(result?: string): GenieInfo | null {
   if (!result) return null;
   try {
@@ -60,7 +84,11 @@ const EXAMPLE_PROMPTS = [
   "What were our cost savings last quarter?",
 ];
 
-export function Chatbot() {
+interface ChatbotProps {
+  onNavigate: (p: string, opts?: { supplierId?: string }) => void;
+}
+
+export function Chatbot({ onNavigate }: ChatbotProps) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSession, setActiveSession] = useState<ChatSession | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -235,10 +263,10 @@ export function Chatbot() {
             <div style={{ textAlign: "center" }}>
               <h2 style={{ fontSize: "var(--fs-h3)", fontWeight: 700, letterSpacing: "var(--tracking-tight)",
                 color: "var(--fg-1)", marginBottom: "var(--space-2)" }}>
-                Procurement Assistant
+                Procurement Agent
               </h2>
               <p style={{ fontSize: "var(--fs-body-sm)", color: "var(--fg-2)", margin: 0 }}>
-                Find suppliers, submit purchase requests, check contracts, and explore spend.
+                Find suppliers, submit purchase requests, check contracts, and explore spend — then jump to the module to act.
               </p>
             </div>
             <div style={{ width: "100%", maxWidth: 600, display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
@@ -273,7 +301,7 @@ export function Chatbot() {
                 <div key={msg.message_id} style={{ marginBottom: "var(--space-4)" }}>
                   {/* Actions card sits ABOVE the assistant bubble it produced */}
                   {msg.role === "assistant" && Array.isArray(msg.tool_calls) && (
-                    <ActionsCard steps={msg.tool_calls as Step[]} feedbackSent={feedbackSent} onFeedback={sendFeedback} />
+                    <ActionsCard steps={msg.tool_calls as Step[]} feedbackSent={feedbackSent} onFeedback={sendFeedback} onNavigate={onNavigate} />
                   )}
                   <div style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start" }}>
                     <div style={{ maxWidth: "72%",
@@ -293,7 +321,7 @@ export function Chatbot() {
 
               {/* Live: actions card (while running) + streaming answer */}
               {streaming && liveSteps.length > 0 && (
-                <ActionsCard steps={liveSteps} feedbackSent={feedbackSent} onFeedback={sendFeedback} live />
+                <ActionsCard steps={liveSteps} feedbackSent={feedbackSent} onFeedback={sendFeedback} onNavigate={onNavigate} live />
               )}
 
               {streaming && streamBuf && (
@@ -353,11 +381,12 @@ export function Chatbot() {
 // One compact card per assistant turn listing the steps taken. For Genie steps
 // it surfaces the SQL once + a single 👍/👎. No per-tool expandable widgets.
 function ActionsCard({
-  steps, feedbackSent, onFeedback, live,
+  steps, feedbackSent, onFeedback, onNavigate, live,
 }: {
   steps: Step[];
   feedbackSent: Record<string, "THUMBS_UP" | "THUMBS_DOWN">;
   onFeedback: (g: GenieInfo, r: "THUMBS_UP" | "THUMBS_DOWN") => void;
+  onNavigate: (p: string, opts?: { supplierId?: string }) => void;
   live?: boolean;
 }) {
   if (!steps?.length) return null;
@@ -372,6 +401,8 @@ function ActionsCard({
         {steps.map((st, i) => {
           const g = st.name === "ask_genie" ? parseGenie(st.result) : null;
           const done = st.result !== undefined;
+          const mod = TOOL_MODULE[st.name];
+          const sid = extractSupplierId(st.name, st.result);
           return (
             <div key={i} style={{ marginTop: i === 0 ? 0 : "var(--space-1)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
@@ -379,6 +410,17 @@ function ActionsCard({
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: done ? "var(--fg-1)" : "var(--fg-3)" }}>
                   {toolLabel(st.name)}
                 </span>
+                {/* Tool → module deep link: act on this result in the right page. */}
+                {done && mod && (
+                  <button
+                    onClick={() => onNavigate(mod.page, sid ? { supplierId: sid } : undefined)}
+                    style={{ marginLeft: "auto", background: "transparent", border: "none", cursor: "pointer",
+                      fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600, color: "var(--db-lava-600)",
+                      padding: "0 2px", whiteSpace: "nowrap" }}
+                  >
+                    {mod.label} →
+                  </button>
+                )}
               </div>
               {g?.sql && (
                 <div style={{ marginTop: "var(--space-1)", marginLeft: 20 }}>

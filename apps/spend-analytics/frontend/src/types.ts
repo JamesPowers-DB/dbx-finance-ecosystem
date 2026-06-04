@@ -18,6 +18,11 @@ export interface KpiResponse {
   addressable_spend_pct: number;
 }
 
+export interface AttentionResponse {
+  contracts: { count: number; committed_usd: number };
+  suppliers: { count: number; spend_usd: number };
+}
+
 export interface ContractRow {
   contract_workspace_id: string;
   contract_type: string;
@@ -34,6 +39,22 @@ export interface ContractRow {
   status: string;
   region: string | null;
   source_system?: string | null;
+}
+
+// Fabricated agentic contracting-workflow outcome (no write) — mirrors the
+// procurement agent's submit_pr → Sourcing & Contracting MCP result.
+export interface ContractWorkflowResult {
+  action: string;
+  system: string;
+  status: string;
+  workflow_id: string;
+  workflow_kind: string;
+  supplier_name: string;
+  contract_title: string;
+  routed_to: string;
+  message: string;
+  initiated_by?: string | null;
+  initiated_at?: string | null;
 }
 
 export interface BurnDownPoint {

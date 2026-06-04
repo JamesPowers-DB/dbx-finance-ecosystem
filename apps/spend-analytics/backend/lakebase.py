@@ -105,6 +105,22 @@ CREATE TABLE IF NOT EXISTS savings_register (
 );
 
 CREATE INDEX IF NOT EXISTS idx_savings_register_status ON savings_register (status);
+
+-- Contracting-workflow kickoffs initiated from a contract's renewal-risk banner.
+-- One row per contract (the latest workflow) so re-opening a contract recalls
+-- the agentic action that was already triggered against it.
+CREATE TABLE IF NOT EXISTS contract_workflows (
+    contract_workspace_id TEXT PRIMARY KEY,
+    workflow_id           TEXT NOT NULL,
+    workflow_kind         TEXT NOT NULL,
+    status                TEXT NOT NULL DEFAULT 'initiated',
+    supplier_name         TEXT,
+    contract_title        TEXT,
+    routed_to             TEXT,
+    message               TEXT NOT NULL,
+    initiated_by          TEXT NOT NULL,
+    initiated_at          TIMESTAMPTZ DEFAULT NOW()
+);
 """
 
 

@@ -6,6 +6,8 @@ import type {
   ContractInvoiceRow,
   ContractPORow,
   ContractRow,
+  ContractWorkflowResult,
+  AttentionResponse,
   AnalyticsKpis,
   CompositionDetailRow,
   DateRange,
@@ -67,6 +69,7 @@ async function del<T>(path: string): Promise<T> {
 // ── System ────────────────────────────────────────────────────────────────────
 export const getMe = () => j<MeResponse>("/me");
 export const getKpis = () => j<KpiResponse>("/kpis");
+export const getAttention = () => j<AttentionResponse>("/attention");
 
 // ── Contracts ─────────────────────────────────────────────────────────────────
 export const getContracts = (params?: Record<string, string>) => {
@@ -79,6 +82,10 @@ export const getContractInvoices = (id: string, limit = 100) =>
   j<ContractInvoiceRow[]>(`/contracts/${encodeURIComponent(id)}/invoices?limit=${limit}`);
 export const getContractPurchaseOrders = (id: string, limit = 100) =>
   j<ContractPORow[]>(`/contracts/${encodeURIComponent(id)}/purchase_orders?limit=${limit}`);
+export const initiateContractWorkflow = (id: string) =>
+  post<ContractWorkflowResult>(`/contracts/${encodeURIComponent(id)}/initiate_workflow`, {});
+export const getContractWorkflow = (id: string) =>
+  j<ContractWorkflowResult | null>(`/contracts/${encodeURIComponent(id)}/workflow`);
 
 // ── Suppliers ─────────────────────────────────────────────────────────────────
 export const getSuppliers = (params?: Record<string, string>) => {

@@ -60,7 +60,7 @@ export default function App() {
         {page === "contracts" && <Contracts searchQuery={searchQuery} />}
         {page === "suppliers" && <Suppliers searchQuery={searchQuery} focusSupplierId={focusSupplierId} />}
         {page === "savings"   && <CostSavings searchQuery={searchQuery} />}
-        {page === "chatbot"   && <Chatbot />}
+        {page === "chatbot"   && <Chatbot onNavigate={navigate} />}
       </main>
     </>
   );
