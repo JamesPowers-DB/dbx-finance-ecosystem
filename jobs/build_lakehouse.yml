@@ -8,30 +8,11 @@ resources:
         finance-spend-analytics-generate-data has produced fresh source files.
       max_concurrent_runs: 1
       email_notifications: {}
-      environments:
-        - environment_key: default
-          spec:
-            client: "2"
-            dependencies:
-              - polars==1.30.0
-              - mimesis==18.0.0
       tasks:
         - task_key: run_lakehouse_pipeline
           pipeline_task:
             pipeline_id: ${resources.pipelines.lakehouse.id}
             full_refresh: false
-
-        - task_key: validate_gold_vs_anchors
-          environment_key: default
-          depends_on:
-            - task_key: run_lakehouse_pipeline
-          notebook_task:
-            notebook_path: ../ml/notebooks/validate_gold_vs_anchors.py
-            source: WORKSPACE
-            base_parameters:
-              catalog: ${var.catalog}
-              schema: ${var.schema}
-              tolerance_pct: "2.0"
 
       queue:
         enabled: true

@@ -2,8 +2,8 @@
 # MAGIC %md
 # MAGIC # Spend classification — evaluation across slices, 2-tier metrics
 # MAGIC
-# MAGIC Compares all registered model aliases of `<catalog>.ml.spend_classifier`
-# MAGIC (`@challenger`, optionally `@challenger_embedding`) against a synthetic
+# MAGIC Compares the registered `@challenger` model of `<catalog>.ml.spend_classifier`
+# MAGIC against a synthetic
 # MAGIC `gl_account → most-common-leaf` baseline. Reports both leaf-tier
 # MAGIC (`secondary`) and parent-tier (`primary`) metrics on two slices:
 # MAGIC
@@ -107,8 +107,8 @@ from mlflow.tracking import MlflowClient
 mlflow.set_registry_uri("databricks-uc")
 client = MlflowClient(registry_uri="databricks-uc")
 
-# We always evaluate @challenger; @challenger_embedding is optional (skip if absent).
-candidate_aliases = ["challenger", "challenger_embedding"]
+# Evaluate the registered @challenger alias (others skipped if absent).
+candidate_aliases = ["challenger"]
 present_aliases = []
 for alias in candidate_aliases:
     try:

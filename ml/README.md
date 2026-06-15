@@ -6,8 +6,8 @@ Two ML / governance workflows live in this folder:
 
 | Folder | Purpose | Status |
 |---|---|---|
-| `spend_classification/` | **Headline model** — multi-class classifier on AP invoice line items | Feature prep, training, evaluation, and batch inference all implemented end-to-end. `train_embedding.py` (FM embedding variant) remains a stub for the ML expert. |
-| `notebooks/` | Gold-vs-anchor validator. | Stub |
+| `spend_classification/` | **Headline model** — multi-class classifier on AP invoice line items | Feature prep, training, evaluation, and batch inference all implemented end-to-end. |
+| `notebooks/` | Weekly-refresh output gate (`validate_refresh_output.py`). | ✅ DONE |
 
 The rest of this doc is the spend-classification model spec.
 
@@ -193,16 +193,9 @@ Stratification by `true_category_secondary` (the leaf) ensures every leaf class 
 
 **Widgets**: `catalog`, `schema`, `model_name` (default `spend_classifier`), `model_alias` (default `challenger`), `max_train_rows` (default `0` = full training set; set lower for smoke tests).
 
-### `train_embedding.py` — Foundation Model API variant (optional)  ⚠ STUB
-
-- Call `databricks-bge-large-en` via `mlflow.deployments` SDK to embed `line_description` in batches (chunks of 1000).
-- Cache embeddings in `<catalog>.<schema>.ml_spend_clf_embeddings_cache` (keyed by hash of description) so re-runs don't re-embed.
-- Train classifier head (logistic regression or 2-layer MLP) on `[embedding ; tabular_features]`.
-- MLflow autolog; register as `@challenger_embedding` for comparison.
-
 ### `evaluate.py` — slice-level comparison + winner promotion  ✅ DONE
 
-For each model alias (`@challenger`, `@challenger_embedding`, plus a `@gl_account_baseline` lookup model that predicts via `gl_account → most_common_category`):
+For each model alias (`@challenger`, plus a `@gl_account_baseline` lookup model that predicts via `gl_account → most_common_category`):
 
 Recorded labels carry ~8% intra-parent noise (see § 2), so leaf-tier accuracy is capped near 92%. Parent-tier accuracy should approach 100% because noise is intra-parent only.
 
@@ -225,7 +218,7 @@ Recorded labels carry ~8% intra-parent noise (see § 2), so leaf-tier accuracy i
 
 **Implementation:**
 - Loads `holdout`, `maverick_holdout`, and `train` (the last only to build the GL-account baseline lookup).
-- Discovers which registered aliases exist (`@challenger` always; `@challenger_embedding` if present); silently skips missing aliases.
+- Discovers which registered aliases exist (`@challenger`); silently skips any that are missing.
 - Builds the `gl_account → most-common-leaf` baseline in-notebook (no MLflow registration — it's a floor, not a candidate).
 - Scores every (model × slice) pair via `mlflow.pyfunc.load_model(...).predict(...)`; the pyfunc returns all four prediction columns natively.
 - Writes per-tier metrics to `<catalog>.<schema>.ml_spend_clf_eval_runs` (appended each run) with `evaluated_at` + `uc_model` provenance columns.
@@ -249,16 +242,6 @@ Recorded labels carry ~8% intra-parent noise (see § 2), so leaf-tier accuracy i
 
 > The pyfunc bakes the leaf→parent taxonomy into the model artifact at training time, so the parent tier is derived inside `model.predict()` — no `gold_dim_spend_category` join is needed at inference. If `gold_dim_spend_category` changes shape, old model versions still emit deterministic predictions over their original taxonomy (until the next retraining run).
 
-### `sourcing_strategy_view.py` — the *value* delivered to sourcing  ⚠ STUB
-
-Creates `<catalog>.<schema>.gold_vw_sourcing_strategy` — a denormalized view that the eventual dashboards / Genie space consume. Filters to `addressability = 'Addressable'` (sourcing can't move regulated spend):
-
-- **Parent-tier concentration**: spend by `predicted_primary_category` × segment × quarter — the exec-summary surface.
-- **Leaf-tier supplier share**: within each leaf, Herfindahl index over suppliers for monopsony risk.
-- **Maverick spend per leaf**: total $ where `supplier.category_primary != predicted_secondary_category` (supplier shouldn't be selling this).
-- **Off-contract category spend**: joined with `silver_contract_inbound` to flag spend that isn't covered by an active inbound contract.
-- **Tail spend per segment**: sum of spend in leaves where one segment buys < 5% of company total — candidates for consolidation.
-
 ---
 
 ## 5. File layout
@@ -267,14 +250,12 @@ Creates `<catalog>.<schema>.gold_vw_sourcing_strategy` — a denormalized view t
 ml/
 ├── README.md                              ← this file
 ├── notebooks/
-│   └── validate_gold_vs_anchors.py       ← assert gold ties to anchors ±2%
+│   └── validate_refresh_output.py        ← weekly-refresh output gate (fresh, labeled, non-future)
 └── spend_classification/                  ← headline ML project
     ├── prepare_features.py               ✅ DONE
     ├── train_baseline.py                 ✅ DONE — TF-IDF + LightGBM, taxonomy-aware pyfunc
-    ├── train_embedding.py                ⚠ STUB — Foundation Model API variant (optional)
     ├── evaluate.py                       ✅ DONE — 2-tier metrics + GL baseline + winner promotion
-    ├── batch_inference.py                ✅ DONE — spark_udf scoring, MERGE into ml_invoice_classifications
-    └── sourcing_strategy_view.py         ⚠ STUB
+    └── batch_inference.py                ✅ DONE — spark_udf scoring, MERGE into ml_invoice_classifications
 
 ```
 
@@ -287,13 +268,8 @@ ml/
 `jobs/train_spend_classifier.yml` chains the spend-classification notebooks:
 
 ```
-prepare_features
-    │
-    ├──▶ train_baseline ─────┐
-    └──▶ train_embedding ────┴──▶ evaluate ──▶ batch_inference ──▶ sourcing_strategy_view
-                                  (promotes
-                                   winner to
-                                   @production)
+prepare_features ──▶ train_baseline ──▶ evaluate ──▶ batch_inference
+                                        (promotes winner to @production)
 ```
 
 ### Dependencies

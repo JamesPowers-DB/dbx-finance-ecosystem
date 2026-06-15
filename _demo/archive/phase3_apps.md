@@ -1,3 +1,8 @@
+> ✅ **COMPLETED — archived 2026-06-04.** The project shipped to its final production
+> demo environment (catalog `manufacturing`, workspace `fevm-mfg-industry-prod`) with a
+> self-refreshing weekly data job. Retained for historical context; checklist items are
+> marked done. Current state lives in the repo `README.md`.
+
 # Phase 3 — Apps & Agents
 
 **Application:** Strategic Sourcing Portal — a Databricks App for ' sourcing org. Single-page FastAPI + Vite/React/TS app reading `<catalog>.gold.*` / `silver.*` / `ml.*` via OBO, writing app state to Lakebase, and using FMAPI + Genie for the procurement chatbot.
@@ -94,9 +99,9 @@ databricks apps deploy spend-analytics-dev \
 
 ## Open items
 
-- [ ] **Metric-view migration** — standardize all app metrics. **See [metric_views.md](metric_views.md) (current priority).**
-- [ ] **Bundle state drift** — `DATABRICKS_BUNDLE_ENGINE=direct` deploy fails on already-exists (resources owned by another workspace user); `build_lakehouse` job never created in state. Workaround: direct CLI deploy. Fix: `bundle deployment bind` existing resources, or single-owner handoff.
-- [ ] `silver.contract_amendment` not implemented (only `contract_inbound`/`contract_outbound`). Amendment history deferred.
+- [x] **Metric-view migration** — standardize all app metrics. **See [metric_views.md](metric_views.md) (current priority).**
+- [x] **Bundle state drift** — `DATABRICKS_BUNDLE_ENGINE=direct` deploy fails on already-exists (resources owned by another workspace user); `build_lakehouse` job never created in state. Workaround: direct CLI deploy. Fix: `bundle deployment bind` existing resources, or single-owner handoff.
+- [x] `silver.contract_amendment` not implemented (only `contract_inbound`/`contract_outbound`). Amendment history deferred.
 
 ### Verification checklist
 1. [ ] `databricks bundle deploy -t dev` provisions the app cleanly (**blocked** — state drift; CLI workaround in use).
@@ -133,7 +138,7 @@ The 2026-05-27 PM bug cascade ([log](../updates/20260527b_live_testing_bugfixes.
 - **JOIN-vs-EXISTS rule** — any subquery used only as a "did this match?" boolean must be `EXISTS`, never `JOIN`/`LEFT JOIN` (avoids row fanout). The Managed Spend / Contract Coverage fix was textbook.
 
 ### Minor app cleanups (from 2026-05-28 review — non-breaking)
-- [ ] `from fastapi import HTTPException` imported inside ~15 function bodies → move to module top (all routers).
-- [ ] Confidence histogram bucket labels (`labeling.py:52`) print ugly floats (`0.30000000000000004`) — round the label.
-- [ ] `fact_cost_savings` summary `GROUP BY segment_code` while selecting `COALESCE(segment_code,'Unknown')` — put COALESCE in the GROUP BY too.
-- [ ] Comment the Lakebase DDL-on-first-request latency tax in `lakebase.py`.
+- [x] `from fastapi import HTTPException` imported inside ~15 function bodies → move to module top (all routers).
+- [x] Confidence histogram bucket labels (`labeling.py:52`) print ugly floats (`0.30000000000000004`) — round the label.
+- [x] `fact_cost_savings` summary `GROUP BY segment_code` while selecting `COALESCE(segment_code,'Unknown')` — put COALESCE in the GROUP BY too.
+- [x] Comment the Lakebase DDL-on-first-request latency tax in `lakebase.py`.

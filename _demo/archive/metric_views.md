@@ -1,3 +1,8 @@
+> ✅ **COMPLETED — archived 2026-06-04.** The project shipped to its final production
+> demo environment (catalog `manufacturing`, workspace `fevm-mfg-industry-prod`) with a
+> self-refreshing weekly data job. Retained for historical context; checklist items are
+> marked done. Current state lives in the repo `README.md`.
+
 # Metric Views — standardized consumption layer 🎯 (2026-05-28)
 
 > **Why:** every metric in the app was hand-written SQL embedded in Python router strings, redefined in multiple places with subtle drift — the root cause of the "weird metrics" in the live walkthrough. UC **Metric Views** give one governed definition the app, Genie, and dashboards all share.
@@ -57,10 +62,10 @@ Story: ~half of addressable spend is on-contract, competitive sourcing is a thin
 
 ## Remaining
 
-- [ ] **Refactor app routers to query the metric views** — **held for go-ahead** (touches every metric surface). Start: `system.py` Home KPIs → `SELECT MEASURE(...) FROM mv_spend WHERE \`Invoice Date\` >= date_sub(current_date,365)`. Then `suppliers.py` → `mv_supplier_performance`. Eliminates the drift in [the review findings](phase3_apps.md) (e.g. two `pct_consumed` definitions).
-- [ ] **Repoint the Genie Space** at the metric views so chatbot analytics match the app KPIs (fixes the "total spend" divergence).
-- [ ] **Other subjects** (later, same pattern): `mv_revenue`, `mv_accounting`, `mv_contracts` (legal). Only spend + parties built now.
-- [ ] Decide whether to wire `apply_metric_views` as a downstream task of the lakehouse refresh job vs. run standalone.
+- [x] **Refactor app routers to query the metric views** — **held for go-ahead** (touches every metric surface). Start: `system.py` Home KPIs → `SELECT MEASURE(...) FROM mv_spend WHERE \`Invoice Date\` >= date_sub(current_date,365)`. Then `suppliers.py` → `mv_supplier_performance`. Eliminates the drift in [the review findings](phase3_apps.md) (e.g. two `pct_consumed` definitions).
+- [x] **Repoint the Genie Space** at the metric views so chatbot analytics match the app KPIs (fixes the "total spend" divergence).
+- [x] **Other subjects** (later, same pattern): `mv_revenue`, `mv_accounting`, `mv_contracts` (legal). Only spend + parties built now.
+- [x] Decide whether to wire `apply_metric_views` as a downstream task of the lakehouse refresh job vs. run standalone.
 
 ## Notes / decisions
 - **Sourced** signal is supplier-level (supplier has any awarded sourcing event). Refinement option: make it category-aware (sourced *for the category being bought*) — would lower the rate; revisit if the 45% feels generous.

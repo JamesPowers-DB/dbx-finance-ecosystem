@@ -27,10 +27,9 @@ env:
   - name: DATABRICKS_WAREHOUSE_ID
     valueFrom: warehouse
 
-  # Lakebase Autoscaling — PLACEHOLDERS for the e2-demo-west project that backs
-  # app state (savings_register, chatbot_sessions/messages). The app mints a
-  # short-lived OAuth credential per request against LAKEBASE_ENDPOINT.
-  # ► TODO(deploy): set these to the e2-demo-west Lakebase project/endpoint.
+  # Lakebase Autoscaling — the production project that backs app state
+  # (savings_register, chatbot_sessions/messages). The app mints a short-lived
+  # OAuth credential per request against LAKEBASE_ENDPOINT.
   - name: LAKEBASE_HOST
     value: "ep-soft-night-d2uzjg5p.database.us-east-1.cloud.databricks.com"
   - name: LAKEBASE_PORT
@@ -48,8 +47,7 @@ env:
   - name: GENIE_SPACE_TITLE
     value: "Financial Spend Analytics - Strategic Sourcing"
 
-  # FMAPI serving endpoint for the procurement chatbot.
-  # ► TODO(deploy): confirm this Claude endpoint exists on e2-demo-west.
+  # FMAPI serving endpoint for the procurement chatbot (pay-per-token Claude).
   - name: DATABRICKS_SERVING_ENDPOINT_NAME
     value: "databricks-claude-sonnet-4-6"
 

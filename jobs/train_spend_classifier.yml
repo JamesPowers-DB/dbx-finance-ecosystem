@@ -6,16 +6,14 @@ resources:
         End-to-end training orchestration for the spend-classification model.
 
         DAG:
-          prepare_features ──┬──▶ train_baseline ───────┐
-                             └──▶ train_embedding ─────┴──▶ evaluate ──▶ batch_inference ──▶ sourcing_strategy_view
+          prepare_features ──▶ train_baseline ──▶ evaluate ──▶ batch_inference
 
         Inputs: gold.fact_invoices (populated by the build_lakehouse pipeline).
         Outputs:
           - <catalog>.ml.{spend_clf_train, spend_clf_holdout, spend_clf_maverick_holdout}
-          - <catalog>.ml.spend_classifier (UC-registered model with @challenger / @challenger_embedding / @production aliases)
+          - <catalog>.ml.spend_classifier (UC-registered model with @challenger / @production aliases)
           - <catalog>.ml.spend_clf_eval_runs (eval history)
           - <catalog>.ml.invoice_classifications (predictions MERGEd in by invoice_line_id; gold.fact_invoices LEFT-joins through silver.invoice_classification)
-          - <catalog>.gold.vw_sourcing_strategy (sourcing-org analytics view)
 
         Run this after `build_lakehouse` has populated gold. See `ml/README.md`
         for the full model spec and training process.
@@ -61,26 +59,10 @@ resources:
               hpo_trials: "10"
               hpo_sample_rows: "60000"
 
-        - task_key: train_embedding
-          environment_key: ml_train
-          depends_on:
-            - task_key: prepare_features
-          notebook_task:
-            notebook_path: ../ml/spend_classification/train_embedding.py
-            source: WORKSPACE
-            base_parameters:
-              catalog: ${var.catalog}
-              schema: ${var.schema}
-              model_name: spend_classifier
-              model_alias: challenger_embedding
-              embedding_endpoint: databricks-bge-large-en
-              batch_size: "1000"
-
         - task_key: evaluate
           environment_key: ml_train
           depends_on:
             - task_key: train_baseline
-            - task_key: train_embedding
           notebook_task:
             notebook_path: ../ml/spend_classification/evaluate.py
             source: WORKSPACE
@@ -101,17 +83,6 @@ resources:
               schema: ${var.schema}
               model_name: spend_classifier
               model_alias: production
-
-        - task_key: sourcing_strategy_view
-          environment_key: ml_train
-          depends_on:
-            - task_key: batch_inference
-          notebook_task:
-            notebook_path: ../ml/spend_classification/sourcing_strategy_view.py
-            source: WORKSPACE
-            base_parameters:
-              catalog: ${var.catalog}
-              schema: ${var.schema}
 
       queue:
         enabled: true

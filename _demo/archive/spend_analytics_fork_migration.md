@@ -1,3 +1,8 @@
+> ✅ **COMPLETED — archived 2026-06-04.** The project shipped to its final production
+> demo environment (catalog `manufacturing`, workspace `fevm-mfg-industry-prod`) with a
+> self-refreshing weekly data job. Retained for historical context; checklist items are
+> marked done. Current state lives in the repo `README.md`.
+
 # Fork Migration — Finance Spend Analytics (lean, single-schema)
 
 **Branch:** `fork/finance-spend-analytics`
